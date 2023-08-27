@@ -1,0 +1,16 @@
+(library
+  (name llama_types)
+  (modules Llama_types)
+  (libraries ctypes.stubs ctypes)
+)
+
+(library
+  (name llama_fixed_types)
+  (modules Llama_fixed_types Llama_c_generated_types)
+  (libraries ctypes.stubs ctypes llama_types)
+)
+
+(rule
+ (with-stdout-to
+  llama_c_generated_types.ml
+  (run ../generate_types_step_2.exe)))

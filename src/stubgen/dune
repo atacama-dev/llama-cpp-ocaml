@@ -1,0 +1,14 @@
+(executable
+ (name generate_c_functions)
+ (modules Generate_c_functions)
+ (libraries ctypes.stubs llama_functions))
+
+(executable
+ (name generate_ml_functions)
+ (modules Generate_ml_functions)
+ (libraries ctypes.stubs llama_functions))
+
+(executable
+ (name generate_c_types)
+ (modules Generate_c_types)
+ (libraries ctypes.stubs llama_types))

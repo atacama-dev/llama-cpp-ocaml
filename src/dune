@@ -1,0 +1,55 @@
+(data_only_dirs llama.cpp)
+
+(rule
+  (deps (source_tree llama.cpp))
+  (targets libllama_bindings.a dllllama_bindings.so)
+  (action
+    (no-infer
+      (progn
+        (chdir llama.cpp (run make libllama.so))
+        (chdir llama.cpp (system "ar -rc llama.a llama.o ggml.*o"))
+        (copy llama.cpp/llama.a libllama_bindings.a)
+        (copy llama.cpp/libllama.so dllllama_bindings.so)))))
+
+(library
+  (name llama_cpp)
+  (modules Llama_cpp Llama_generated)
+  (libraries ctypes ctypes.foreign str llama_fixed_types llama_functions)
+  (foreign_archives llama_bindings)
+  (foreign_stubs
+   (language c)
+   (names c_generated_functions)
+   (include_dirs %{project_root}/src/llama.cpp))
+  (library_flags (:include library_flags.sexp))
+; (ocamlopt_flags (-ccopt (:include ccopts.sexp)))
+)
+
+(rule
+ (targets library_flags.sexp)
+ (deps
+  (:discover config/discover.exe))
+ (action
+  (run %{discover})))
+
+(rule
+ (with-stdout-to
+  llama_generated.ml
+  (run stubgen/generate_ml_functions.exe llama_stub)))
+
+(rule
+ (targets generate_types_step_2.exe)
+ (deps
+  (:c c_generated_types.c))
+ (action
+  (bash
+   "%{cc} %{c} -std=c11 -I '%{lib:ctypes:.}' -I %{ocaml_where} -I llama.cpp -o %{targets}")))
+
+(rule
+ (with-stdout-to
+  c_generated_types.c
+  (run stubgen/generate_c_types.exe llama_stub)))
+
+(rule
+ (with-stdout-to
+  c_generated_functions.c
+  (run stubgen/generate_c_functions.exe llama_stub)))
