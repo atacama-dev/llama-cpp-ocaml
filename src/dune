@@ -7,7 +7,7 @@
     (no-infer
       (progn
         (chdir llama.cpp (run make libllama.so))
-        (chdir llama.cpp (system "ar -rc llama.a llama.o ggml.*o"))
+        (chdir llama.cpp (system "ar -rc llama.a k_quants.o ggml-alloc.o ggml.o llama.o"))
         (copy llama.cpp/llama.a libllama_bindings.a)
         (copy llama.cpp/libllama.so dllllama_bindings.so)))))
 
@@ -21,6 +21,7 @@
    (names c_generated_functions)
    (include_dirs %{project_root}/src/llama.cpp))
   (library_flags (:include library_flags.sexp))
+  (flags (:standard -linkall -cclib -lstdc++))
 ; (ocamlopt_flags (-ccopt (:include ccopts.sexp)))
 )
 

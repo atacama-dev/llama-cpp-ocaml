@@ -9,7 +9,7 @@ let () =
       let library_flags =
         match C.ocaml_config_var c "system" with
         | Some ("linux" | "linux_elf" | "elf") ->
-            link [ "llama_bindings" ]
+            link [ "llama_bindings"; "stdc++" ]
         | Some "macosx" ->
           (* TODO *)
           assert false

@@ -1,7 +1,7 @@
 open Ctypes
 
 module Types = Llama_fixed_types.Types
-module Stubs = Llama_generated
+module Stubs = Llama_functions.Make (Llama_generated)
 
 module Internal = struct
 
@@ -89,3 +89,5 @@ let context_params
     ~use_mmap
     ~use_mlock
     ~embedding
+
+let load_model_from_file = Stubs.load_model_from_file
