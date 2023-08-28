@@ -43,6 +43,10 @@ end
 
 type context_params = (Types.Context_params.t, [ `Struct ]) structured
 
+type model = Types.Model.t Ctypes_static.structure Ctypes_static.ptr
+
+type context = Types.Context.t Ctypes_static.structure Ctypes_static.ptr
+
 let funptr_of_function fn f =
   coerce (Foreign.funptr fn) (static_funptr fn) f
 
@@ -91,3 +95,9 @@ let context_params
     ~embedding
 
 let load_model_from_file = Stubs.load_model_from_file
+
+let free_model = Stubs.free_model
+
+let new_context_with_model = Stubs.new_context_with_model
+
+let free = Stubs.free
