@@ -1,7 +1,7 @@
 (library
   (name llama_types)
   (modules Llama_types)
-  (libraries ctypes.stubs ctypes)
+  (libraries ctypes.stubs)
 )
 
 (library
