@@ -2,6 +2,23 @@ module Make = functor (T : Ctypes.TYPE) ->
 struct
   open T
 
+  module Log_level =
+  struct
+    type t =
+      | Error
+      | Warn
+      | Info
+
+    let vals =
+      [
+        (Error, constant "LLAMA_LOG_LEVEL_ERROR" int64_t);
+        (Warn, constant "LLAMA_LOG_LEVEL_WARN" int64_t);
+        (Info, constant "LLAMA_LOG_LEVEL_INFO" int64_t);
+      ]
+
+    let repr = enum ~typedef:false "llama_log_level" vals
+  end
+
   module Progress_callback =
   struct
     type t
@@ -14,7 +31,7 @@ struct
   struct
     type t
 
-    let repr = int
+    let repr = typedef int "llama_token"
   end
 
   module Context_params =
@@ -260,7 +277,8 @@ struct
   struct
     type t
 
-    let repr : t Ctypes.structure typ = structure "llama_grammar_element"
+    let repr : t Ctypes.structure typ =
+      typedef (structure "llama_grammar_element") "llama_grammar_element"
 
     module Fields =
     struct
@@ -340,14 +358,4 @@ struct
       let () = seal repr
     end
   end
-
-  (* module Beam_search_callback = *)
-  (* struct *)
-  (*   type t *)
-
-  (*   let repr : (unit Ctypes.ptr -> *)
-  (*               Beams_state.t Ctypes.structure -> *)
-  (*               unit) static_funptr T.typ = *)
-  (*     static_funptr ((ptr void) @-> Beams_state.repr @-> returning void) *)
-  (* end *)
 end
