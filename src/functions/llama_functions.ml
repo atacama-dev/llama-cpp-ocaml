@@ -277,7 +277,7 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
 
   (* @details Randomly selects a token from the candidates based on their probabilities. *)
   let sample_token =
-    foreign "llama_sample_token_greedy" (ptr Context.repr @-> ptr Token_data_array.repr @-> returning Token.repr)
+    foreign "llama_sample_token" (ptr Context.repr @-> ptr Token_data_array.repr @-> returning Token.repr)
 
   (* @details Accepts the sampled token into the grammar *)
   let accept_token =

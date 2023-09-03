@@ -2,6 +2,8 @@ module Make = functor (T : Ctypes.TYPE) ->
 struct
   open T
 
+  let max_devices = constant "LLAMA_MAX_DEVICES" int
+
   module Log_level =
   struct
     type t =
