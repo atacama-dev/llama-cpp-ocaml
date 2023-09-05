@@ -1,4 +1,4 @@
-let c_headers = "#include \"llama.h\""
+let c_headers = "#include <string.h>\n#include \"llama.h\""
 
 let main () =
   print_endline c_headers;

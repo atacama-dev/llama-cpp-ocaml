@@ -335,4 +335,7 @@ static_funptr typ =
   (* If this is not called, or NULL is supplied, everything is output on stderr. *)
   let log_set =
     foreign "llama_log_set" (Log_callback.repr @-> ptr void @-> returning void)
+
+  let strlen =
+    foreign "strlen" (ptr char @-> returning size_t)
 end

@@ -33,7 +33,7 @@ struct
   struct
     type t
 
-    let repr = typedef int "llama_token"
+    let repr = typedef int32_t "llama_token"
   end
 
   module Context_params =
