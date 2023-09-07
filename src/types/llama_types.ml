@@ -238,38 +238,38 @@ struct
   struct
     type t =
         (* end of rule definition *)
-        | GRETYPE_END
+        | END
 
         (* start of alternate definition for rule *)
-        | GRETYPE_ALT
+        | ALT
 
         (* non-terminal element: reference to rule *)
-        | GRETYPE_RULE_REF
+        | RULE_REF
 
         (* terminal element: character (code point) *)
-        | GRETYPE_CHAR
+        | CHAR
 
         (* inverse char(s) ([^a], [^a-b] [^abc]) *)
-        | GRETYPE_CHAR_NOT
+        | CHAR_NOT
 
-        (* modifies a preceding | GRETYPE_CHAR or LLAMA_GRETYPE_CHAR_ALT to *)
+        (* modifies a preceding | CHAR or LLAMA_CHAR_ALT to *)
         (* be an inclusive range ([a-z]) *)
-        | GRETYPE_CHAR_RNG_UPPER
+        | CHAR_RNG_UPPER
 
-        (* modifies a preceding | GRETYPE_CHAR or *)
-        (* LLAMA_GRETYPE_CHAR_RNG_UPPER to add an alternate char to match ([ab], [a-zA]) *)
-        | GRETYPE_CHAR_ALT
+        (* modifies a preceding | CHAR or *)
+        (* LLAMA_CHAR_RNG_UPPER to add an alternate char to match ([ab], [a-zA]) *)
+        | CHAR_ALT
 
 
     let vals =
       [
-        (GRETYPE_END, constant "LLAMA_GRETYPE_END" int64_t);
-        (GRETYPE_ALT, constant "LLAMA_GRETYPE_ALT" int64_t);
-        (GRETYPE_RULE_REF, constant "LLAMA_GRETYPE_RULE_REF" int64_t);
-        (GRETYPE_CHAR, constant "LLAMA_GRETYPE_CHAR" int64_t);
-        (GRETYPE_CHAR_NOT, constant "LLAMA_GRETYPE_CHAR_NOT" int64_t);
-        (GRETYPE_CHAR_RNG_UPPER, constant "LLAMA_GRETYPE_CHAR_RNG_UPPER" int64_t);
-        (GRETYPE_CHAR_ALT, constant "LLAMA_GRETYPE_CHAR_ALT" int64_t)
+        (END, constant "LLAMA_GRETYPE_END" int64_t);
+        (ALT, constant "LLAMA_GRETYPE_ALT" int64_t);
+        (RULE_REF, constant "LLAMA_GRETYPE_RULE_REF" int64_t);
+        (CHAR, constant "LLAMA_GRETYPE_CHAR" int64_t);
+        (CHAR_NOT, constant "LLAMA_GRETYPE_CHAR_NOT" int64_t);
+        (CHAR_RNG_UPPER, constant "LLAMA_GRETYPE_CHAR_RNG_UPPER" int64_t);
+        (CHAR_ALT, constant "LLAMA_GRETYPE_CHAR_ALT" int64_t)
       ]
 
     let repr = enum ~typedef:false "llama_gretype" vals

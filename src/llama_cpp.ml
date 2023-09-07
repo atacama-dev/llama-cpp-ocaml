@@ -37,6 +37,15 @@ type logits = (float, float32_elt, c_layout) Array2.t
 
 type embeddings = (float, float32_elt, c_layout) Array1.t
 
+type token_type = Types.Token_type.t =
+  | Undefined
+  | Normal
+  | Unknown
+  | Control
+  | User_defined
+  | Unused
+  | Byte
+
 
 module Context_params =
 struct
@@ -217,9 +226,36 @@ struct
   let set { data; _ } i { Token_data.id; logit; p } = CArray.set data i (Token_data.to_internal ~id ~logit ~p)
 end
 
+module Grammar_element =
+struct
+  type gretype = Types.Gretype.t =
+  | END
+  | ALT
+  | RULE_REF
+  | CHAR
+  | CHAR_NOT
+  | CHAR_RNG_UPPER
+  | CHAR_ALT
+
+  type t = {
+    type_ : gretype ;
+    value : Unsigned.UInt32.t (* Unicode code point or rule ID *)
+  }
+
+  let make_internal { type_; value } =
+    let open Types.Grammar_element in
+    let result = make repr in
+    setf result Fields.type_ type_ ;
+    setf result Fields.value value ;
+    result
+end
+
 type model = Types.Model.t Ctypes_static.structure Ctypes_static.ptr
 
 type context = Types.Context.t Ctypes_static.structure Ctypes_static.ptr
+
+type grammar = Types.Grammar.t Ctypes_static.structure Ctypes_static.ptr
+
 
 let backend_init ~numa = Stubs.backend_init numa
 
@@ -359,5 +395,87 @@ let token_get_text context token =
   let length = Stubs.strlen ptr |> Unsigned.Size_t.to_int in
   Ctypes.string_from_ptr ptr ~length
 
-let token_get_score context token =
-  Stubs.token_get_score context token
+let token_get_score = Stubs.token_get_score
+
+let token_get_type = Stubs.token_get_type
+
+let token_bos = Stubs.token_bos
+
+let token_eos = Stubs.token_eos
+
+let token_nl = Stubs.token_nl
+
+let tokenize context ~text tokens ~n_max_tokens ~add_bos =
+  if n_max_tokens <= 0 then
+    invalid_arg "tokenize (n_max_tokens <= 0)" ;
+  let text = CArray.of_string text |> CArray.start in
+  let tokens = Ctypes.bigarray_start Ctypes.array1 tokens in
+  let written = Stubs.tokenize context text tokens n_max_tokens add_bos in
+  if written < 0 then
+    Error (`Too_many_tokens written)
+  else
+    Ok written
+
+let tokenize_with_model model ~text tokens ~n_max_tokens ~add_bos =
+  if n_max_tokens <= 0 then
+    invalid_arg "tokenize (n_max_tokens <= 0)" ;
+  let text = CArray.of_string text |> CArray.start in
+  let tokens = Ctypes.bigarray_start Ctypes.array1 tokens in
+  let written = Stubs.tokenize_with_model model text tokens n_max_tokens add_bos in
+  if written < 0 then
+    Error (`Too_many_tokens written)
+  else
+    Ok written
+
+let token_to_piece context token =
+  let rec loop len =
+    let buff = CArray.make char len in
+    let ptr = CArray.start buff in
+    let written = Stubs.token_to_piece context token ptr len in
+    if written = 0 then
+      Error `Invalid_token
+    else if written < 0 then
+      (* Buffer too small *)
+      loop (- written)
+    else
+      Ctypes.string_from_ptr ptr ~length:written
+      |> Result.ok
+  in
+  loop 32
+
+let token_to_piece_with_model model token =
+  let rec loop len =
+    let buff = CArray.make char len in
+    let ptr = CArray.start buff in
+    let written = Stubs.token_to_piece_with_model model token ptr len in
+    if written = 0 then
+      Error `Invalid_token
+    else if written < 0 then
+      (* Buffer too small *)
+      loop (- written)
+    else
+      Ctypes.string_from_ptr ptr ~length:written
+      |> Result.ok
+  in
+  loop 32
+
+let grammar_init (rules : Grammar_element.t array array) ~start_rule_index =
+  let n_rules = Array.length rules in
+  let ptr =
+    Array.map (fun rule ->
+        rule
+        |> Array.to_seq
+        |> Seq.map Grammar_element.make_internal
+        |> List.of_seq
+        |> CArray.of_list Types.Grammar_element.repr
+        |> CArray.start
+      ) rules
+    |> Array.to_list
+    |> CArray.of_list Ctypes.(ptr Types.Grammar_element.repr)
+    |> CArray.start
+  in
+  let result =
+    Stubs.grammar_init ptr (Unsigned.Size_t.of_int n_rules) (Unsigned.Size_t.of_int start_rule_index)
+  in
+  Gc.finalise Stubs.grammar_free result ;
+  result

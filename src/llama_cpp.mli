@@ -30,6 +30,14 @@ type logits = (float, float32_elt, c_layout) Array2.t
 
 type embeddings = (float, float32_elt, c_layout) Array1.t
 
+type token_type =
+  | Undefined
+  | Normal
+  | Unknown
+  | Control
+  | User_defined
+  | Unused
+  | Byte
 
 module Context_params :
 sig
@@ -124,9 +132,28 @@ module Token_data_array : sig
   val set : t -> int -> Token_data.t -> unit
 end
 
+module Grammar_element :
+sig
+  type gretype =
+  | END
+  | ALT
+  | RULE_REF
+  | CHAR
+  | CHAR_NOT
+  | CHAR_RNG_UPPER
+  | CHAR_ALT
+
+  type t = {
+    type_ : gretype ;
+    value : Unsigned.UInt32.t (* Unicode code point or rule ID *)
+  }
+end
+
 type model
 
 type context
+
+type grammar
 
 (** Initialize the llama + ggml backend
     If numa is true, use NUMA optimizations
@@ -141,6 +168,7 @@ val load_model_from_file :
   Context_params.t ->
   model
 
+(* TODO: should we use a finalizer to free those? *)
 val free_model : model -> unit
 
 val new_context_with_model :
@@ -148,6 +176,7 @@ val new_context_with_model :
   Context_params.t ->
   context
 
+(* TODO: should we use a finalizer to free those? *)
 val free : context -> unit
 
 val time_us : unit -> int64
@@ -251,3 +280,38 @@ val get_embeddings : context -> embeddings
 val token_get_text : context -> token -> string
 
 val token_get_score : context -> token -> float
+
+val token_get_type : context -> token -> token_type
+
+(** Special tokens *)
+
+(** beginning-of-sentence *)
+val token_bos : context -> token
+
+(** end-of-sentence *)
+val token_eos : context -> token
+
+(** next-line *)
+val token_nl : context -> token
+
+(** Tokenization *)
+
+(** Convert the provided text into tokens.
+    The tokens buffer must be large enough to hold the resulting tokens.
+    Returns the number of written tokens on success, no more than n_max_tokens
+    Returns [Error (`Too_many_tokens n)] on failure - the number of tokens that would have been returned *)
+val tokenize : context -> text:string -> token_buff -> n_max_tokens:int -> add_bos:bool -> (int, [`Too_many_tokens of int]) result
+
+val tokenize_with_model : model -> text:string -> token_buff -> n_max_tokens:int -> add_bos:bool -> (int, [`Too_many_tokens of int]) result
+
+(** Token Id -> Piece.
+    Uses the vocabulary in the provided context.
+    Does not write null terminator to the buffer.
+    User code is responsible to remove the leading whitespace of the first non-BOS token when decoding multiple tokens. *)
+val token_to_piece : context -> token -> (string, [`Invalid_token]) result
+
+val token_to_piece_with_model : model -> token -> (string, [`Invalid_token]) result
+
+(** Grammar *)
+
+val grammar_init : Grammar_element.t array array -> start_rule_index:int -> grammar
