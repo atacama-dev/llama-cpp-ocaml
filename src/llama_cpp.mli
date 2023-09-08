@@ -111,25 +111,14 @@ sig
   val quantize_output_tensor : t -> bool
 end
 
-module Token_data :
-sig
-
-  type t  = {
-    id : token;
-    logit : float;
-    p: float
-  }
-
-end
-
 module Token_data_array : sig
   type t
 
-  val sorted : t -> bool
+  type logits = (float, float32_elt, c_layout) Array1.t
 
-  val get : t -> int -> Token_data.t
+  val create : logits -> t
 
-  val set : t -> int -> Token_data.t -> unit
+  val write_logits : t -> logits -> unit
 end
 
 module Grammar_element :
@@ -315,3 +304,10 @@ val token_to_piece_with_model : model -> token -> (string, [`Invalid_token]) res
 (** Grammar *)
 
 val grammar_init : Grammar_element.t array array -> start_rule_index:int -> grammar
+
+(** Sampling functions *)
+
+(*
+   TODO: better token_data_array abstraction, use custom C stubs to avoid
+   going through CArray?
+*)

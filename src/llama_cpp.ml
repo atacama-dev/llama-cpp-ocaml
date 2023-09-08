@@ -169,7 +169,6 @@ end
 
 module Model_quantize_params =
 struct
-
   type t = Types.Model_quantize_params.t structure ptr
 
   let default () =
@@ -183,47 +182,35 @@ struct
   let allow_requantize (qp : t) = !@ (qp |-> Types.Model_quantize_params.Fields.allow_requantize)
 
   let quantize_output_tensor (qp : t) = !@ (qp |-> Types.Model_quantize_params.Fields.quantize_output_tensor)
-
-end
-
-module Token_data =
-struct
-  type t  = {
-    id : token;
-    logit : float;
-    p: float
-  }
-
-  type internal = (Types.Token_data.t, [ `Struct ]) structured
-
-  let to_internal ~id ~logit ~p =
-    let open Types.Token_data in
-    let result = make repr in
-    setf result Fields.id id ;
-    setf result Fields.logit logit ;
-    setf result Fields.p p ;
-    result
-
-  let of_internal (td : internal) =
-    let open Types.Token_data in
-    let id = getf td Fields.id in
-    let logit = getf td Fields.logit in
-    let p = getf td Fields.p in
-    { id; logit; p }
 end
 
 module Token_data_array =
 struct
-  type t = {
-    data : Token_data.internal CArray.t ;
-    sorted : bool
-  }
+  type t = Types.Token_data_array.t structure ptr
 
-  let sorted { sorted; data = _ } = sorted
+  type logits = (float, float32_elt, c_layout) Array1.t
 
-  let get { data; _ } i = CArray.get data i |> Token_data.of_internal
+  let make_internal len =
+    let open Types.Token_data_array in
+    let strct = make repr in
+    let data = Ctypes.allocate_n Types.Token_data.repr ~count:len in
+    setf strct Fields.data data ;
+    setf strct Fields.size (Unsigned.Size_t.of_int len) ;
+    setf strct Fields.sorted false ;
+    let res = Ctypes.allocate repr strct in
+    Stubs.init_token_data_array res ;
+    res
 
-  let set { data; _ } i { Token_data.id; logit; p } = CArray.set data i (Token_data.to_internal ~id ~logit ~p)
+  let write_logits tda logits =
+    let dim = getf !@tda Types.Token_data_array.Fields.size |> Unsigned.Size_t.to_int in
+    if dim <> Array1.dim logits then
+      invalid_arg "write_logits: wrong dimensions" ;
+    Stubs.write_logits tda (Ctypes.bigarray_start array1 logits)
+
+  let create logits =
+    let res = make_internal (Array1.dim logits) in
+    write_logits res logits ;
+    res
 end
 
 module Grammar_element =
@@ -250,11 +237,11 @@ struct
     result
 end
 
-type model = Types.Model.t Ctypes_static.structure Ctypes_static.ptr
+type model = Types.Model.t Ctypes.structure Ctypes.ptr
 
-type context = Types.Context.t Ctypes_static.structure Ctypes_static.ptr
+type context = Types.Context.t Ctypes.structure Ctypes.ptr
 
-type grammar = Types.Grammar.t Ctypes_static.structure Ctypes_static.ptr
+type grammar = Types.Grammar.t Ctypes.structure Ctypes.ptr
 
 
 let backend_init ~numa = Stubs.backend_init numa

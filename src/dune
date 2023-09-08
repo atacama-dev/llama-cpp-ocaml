@@ -18,7 +18,7 @@
   (foreign_archives llama_bindings)
   (foreign_stubs
    (language c)
-   (names c_generated_functions)
+   (names c_generated_functions extra_stubs)
    (include_dirs %{project_root}/src/llama.cpp))
   (library_flags (:include library_flags.sexp))
   (flags (:standard -linkall -cclib -lstdc++))

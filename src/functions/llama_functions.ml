@@ -338,4 +338,10 @@ static_funptr typ =
 
   let strlen =
     foreign "strlen" (ptr char @-> returning size_t)
+
+  let init_token_data_array =
+    foreign "init_token_data_array" (ptr Token_data_array.repr @-> returning void)
+
+  let write_logits =
+    foreign "write_logits" (ptr Token_data_array.repr @-> ptr float @-> returning void)
 end
