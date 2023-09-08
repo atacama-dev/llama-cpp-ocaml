@@ -280,7 +280,7 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
     foreign "llama_sample_token" (ptr Context.repr @-> ptr Token_data_array.repr @-> returning Token.repr)
 
   (* @details Accepts the sampled token into the grammar *)
-  let accept_token =
+  let grammar_accept_token =
     foreign "llama_grammar_accept_token" (ptr Context.repr @-> ptr Grammar.repr @-> Token.repr @-> returning void)
 
   (* Beam search *)

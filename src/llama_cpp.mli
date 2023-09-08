@@ -307,7 +307,59 @@ val grammar_init : Grammar_element.t array array -> start_rule_index:int -> gram
 
 (** Sampling functions *)
 
-(*
-   TODO: better token_data_array abstraction, use custom C stubs to avoid
-   going through CArray?
-*)
+(** @details Repetition penalty described in CTRL academic paper https://arxiv.org/abs/1909.05858, with negative logit fix. *)
+val sample_repetition_penalty : context -> candidates:Token_data_array.t -> last_tokens:token_buff -> penalty:float -> unit
+
+(** @details Frequency and presence penalties described in OpenAI API https://platform.openai.com/docs/api-reference/parameter-details. *)
+val sample_frequency_and_presence_penalties : context -> candidates:Token_data_array.t -> last_tokens:token_buff -> alpha_frequency:float ->  alpha_presence:float -> unit
+
+(** @details Apply classifier-free guidance to the logits as described in academic paper "Stay on topic with Classifier-Free Guidance" https://arxiv.org/abs/2306.17806
+    @param candidates A vector of `llama_token_data` containing the candidate tokens, the logits must be directly extracted from the original generation context without being sorted.
+    @params guidance_ctx A separate context from the same model. Other than a negative prompt at the beginning, it should have all generated and user input tokens copied from the main context.
+    @params scale Guidance strength. 1.0f means no guidance. Higher values mean stronger guidance. *)
+val sample_classifier_free_guidance : context -> candidates:Token_data_array.t -> guidance_ctx:context -> scale:float -> unit
+
+(** @details Sorts candidate tokens by their logits in descending order and calculate probabilities based on logits. *)
+val sample_softmax : context -> candidates:Token_data_array.t -> unit
+
+(** @details Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751 *)
+val sample_top_k : context -> candidates:Token_data_array.t -> k:int -> min_keep:int -> unit
+
+(** @details Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751 *)
+val sample_top_p : context -> candidates:Token_data_array.t -> p:float -> min_keep:int -> unit
+
+(** @details Tail Free Sampling described in https://www.trentonbricken.com/Tail-Free-Sampling/. *)
+val sample_tail_free : context -> candidates:Token_data_array.t -> z:float -> min_keep:int -> unit
+
+(** @details Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666. *)
+val sample_typical : context -> candidates:Token_data_array.t -> p:float -> min_keep:int -> unit
+
+val sample_temperature : context -> candidates:Token_data_array.t -> temp:float -> unit
+
+(** @details Apply constraints from grammar *)
+val sample_grammar : context -> candidates:Token_data_array.t -> grammar -> unit
+
+(** @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+    @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+    @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+    @param m The number of tokens considered in the estimation of `s_hat`. This is an arbitrary value that is used to calculate `s_hat`, which in turn helps to calculate the value of `k`. In the paper, they use `m = 100`, but you can experiment with different values to see how it affects the performance of the algorithm.
+    @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal. *)
+val sample_token_mirostat : context -> candidates:Token_data_array.t -> tau:float -> eta:float -> m:int -> float * token
+
+
+(** @details Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+    @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+    @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+    @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal. *)
+val sample_token_mirostat_v2 : context -> candidates:Token_data_array.t -> tau:float -> eta:float -> float * token
+
+(** @details Selects the token with the highest probability. *)
+val sample_token_greedy : context -> candidates:Token_data_array.t -> token
+
+(** @details Randomly selects a token from the candidates based on their probabilities. *)
+val sample_token : context -> candidates:Token_data_array.t -> token
+
+(** @details Accepts the sampled token into the grammar *)
+val grammar_accept_token : context -> grammar -> token -> unit

@@ -466,3 +466,53 @@ let grammar_init (rules : Grammar_element.t array array) ~start_rule_index =
   in
   Gc.finalise Stubs.grammar_free result ;
   result
+
+let sample_repetition_penalty context ~candidates ~last_tokens ~penalty =
+  let dim = Array1.dim last_tokens |> Unsigned.Size_t.of_int in
+  Stubs.sample_repetition_penalty context candidates (Ctypes.bigarray_start array1 last_tokens) dim penalty
+
+let sample_frequency_and_presence_penalties context ~candidates ~last_tokens ~alpha_frequency ~alpha_presence =
+  let dim = Array1.dim last_tokens |> Unsigned.Size_t.of_int in
+  Stubs.sample_frequency_and_presence_penalties context candidates (Ctypes.bigarray_start array1 last_tokens) dim alpha_frequency alpha_presence
+
+let sample_classifier_free_guidance context ~candidates ~guidance_ctx ~scale =
+  Stubs.sample_classifier_free_guidance context candidates guidance_ctx scale
+
+let sample_softmax context ~candidates =
+  Stubs.sample_softmax context candidates
+
+let sample_top_k context ~candidates ~k ~min_keep =
+  Stubs.sample_top_k context candidates k (Unsigned.Size_t.of_int min_keep)
+
+let sample_top_p context ~candidates ~p ~min_keep =
+  Stubs.sample_top_p context candidates p (Unsigned.Size_t.of_int min_keep)
+
+let sample_tail_free context ~candidates ~z ~min_keep =
+  Stubs.sample_tail_free context candidates z (Unsigned.Size_t.of_int min_keep)
+
+let sample_typical context ~candidates ~p ~min_keep =
+  Stubs.sample_typical context candidates p (Unsigned.Size_t.of_int min_keep)
+
+let sample_temperature context ~candidates ~temp =
+  Stubs.sample_temperature context candidates temp
+
+let sample_grammar context ~candidates grammar =
+  Stubs.sample_grammar context candidates grammar
+
+let sample_token_mirostat context ~candidates ~tau ~eta ~m =
+  let mu = Ctypes.allocate float 0.0 in
+  let token = Stubs.sample_token_mirostat context candidates tau eta m mu in
+  (!@mu, token)
+
+let sample_token_mirostat_v2 context ~candidates ~tau ~eta =
+  let mu = Ctypes.allocate float 0.0 in
+  let token = Stubs.sample_token_mirostat_v2 context candidates tau eta mu in
+  (!@mu, token)
+
+let sample_token_greedy context ~candidates =
+  Stubs.sample_token_greedy context candidates
+
+let sample_token context ~candidates =
+  Stubs.sample_token_greedy context candidates
+
+let grammar_accept_token = Stubs.grammar_accept_token
