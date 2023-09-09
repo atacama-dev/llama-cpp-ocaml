@@ -285,16 +285,6 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
 
   (* Beam search *)
 
-  module Beam_search_callback =
-  struct
-    type t
-
-    let repr : (unit Ctypes.ptr ->
-                Beams_state.t Ctypes.structure ->
-                unit) static_funptr typ =
-      static_funptr Ctypes.((ptr void) @-> Beams_state.repr @-> returning void)
-  end
-
   (* @details Deterministically returns entire sentence constructed by a beam search. *)
   (* @param ctx Pointer to the llama_context. *)
   (* @param callback Invoked for each iteration of the beam_search loop, passing in beams_state. *)
@@ -305,7 +295,8 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   (* @param n_threads Number of threads as passed to llama_eval(). *)
   let beam_search =
     foreign "llama_beam_search"
-      (ptr Context.repr @-> Beam_search_callback.repr @-> ptr void @-> size_t @-> int @-> int @-> int @-> returning void)
+      (ptr Context.repr @-> (Foreign.funptr Ctypes.(ptr void @-> Beams_state.repr @-> returning void)) @-> ptr void @-> size_t @-> int @-> int @-> int @-> returning void)
+
 
   let get_timings =
     foreign "llama_get_timings"
@@ -322,19 +313,10 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   let print_system_info =
     foreign "llama_print_system_info" (void @-> returning (ptr char))
 
-  module Log_callback =
-  struct
-    type t
-
-    let repr : (Log_level.t -> char Ctypes_static.ptr -> unit Ctypes_static.ptr -> unit)
-static_funptr typ =
-      static_funptr Ctypes.(Log_level.repr @-> ptr char @-> ptr void @-> returning void)
-  end
-
   (* Set callback for all future logging events. *)
   (* If this is not called, or NULL is supplied, everything is output on stderr. *)
   let log_set =
-    foreign "llama_log_set" (Log_callback.repr @-> ptr void @-> returning void)
+    foreign "llama_log_set" ((Foreign.funptr Ctypes.(Log_level.repr @-> ptr char @-> ptr void @-> returning void)) @-> ptr void @-> returning void)
 
   let strlen =
     foreign "strlen" (ptr char @-> returning size_t)

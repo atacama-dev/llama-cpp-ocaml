@@ -39,6 +39,10 @@ type token_type =
   | Unused
   | Byte
 
+module Log_level : sig
+  type t = Error | Warn | Info
+end
+
 module Context_params :
 sig
 
@@ -135,6 +139,21 @@ sig
   type t = {
     type_ : gretype ;
     value : Unsigned.UInt32.t (* Unicode code point or rule ID *)
+  }
+end
+
+module Timings :
+sig
+  type t = {
+    t_start_ms : float ;
+    t_end_ms : float ;
+    t_load_ms : float ;
+    t_sample_ms : float ;
+    t_p_eval_ms : float ;
+    t_eval_ms : float ;
+    n_sample : int32 ;
+    n_p_eval : int32 ;
+    n_eval : int32
   }
 end
 
@@ -363,3 +382,33 @@ val sample_token : context -> candidates:Token_data_array.t -> token
 
 (** @details Accepts the sampled token into the grammar *)
 val grammar_accept_token : context -> grammar -> token -> unit
+
+(** Beam search *)
+
+type beam_view = {
+  tokens : token_buff ;
+  p : float ;
+  eob : bool
+}
+
+type beam_search_callback =
+  beam_views:beam_view array ->
+  common_prefix_length:int ->
+  last_call:bool ->
+  unit
+
+val beam_search : context -> beam_search_callback -> n_beams:int -> n_past:int -> n_predict:int -> n_threads:int -> unit
+
+(** Performance information *)
+
+val get_timings : context -> Timings.t
+
+val print_timings : context -> unit
+
+val reset_timings : context -> unit
+
+(** Print system information *)
+
+val print_system_info : unit -> string
+
+val log_set : (Log_level.t -> string -> unit) -> unit

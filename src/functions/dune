@@ -1,5 +1,5 @@
 (library
   (name llama_functions)
   (modules Llama_functions)
-  (libraries ctypes.stubs ctypes llama_fixed_types)
+  (libraries ctypes.stubs ctypes.foreign ctypes llama_fixed_types)
 )

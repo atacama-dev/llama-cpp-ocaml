@@ -46,6 +46,9 @@ type token_type = Types.Token_type.t =
   | Unused
   | Byte
 
+module Log_level = struct
+  type t = Types.Log_level.t = Error | Warn | Info
+end
 
 module Context_params =
 struct
@@ -235,6 +238,44 @@ struct
     setf result Fields.type_ type_ ;
     setf result Fields.value value ;
     result
+end
+
+module Timings =
+struct
+  type t = {
+    t_start_ms : float ;
+    t_end_ms : float ;
+    t_load_ms : float ;
+    t_sample_ms : float ;
+    t_p_eval_ms : float ;
+    t_eval_ms : float ;
+    n_sample : int32 ;
+    n_p_eval : int32 ;
+    n_eval : int32
+  }
+
+  let get (p : Types.Timings.t structure) =
+    let open Types.Timings in
+    let t_start_ms = getf p Fields.t_start_ms in
+    let t_end_ms = getf p Fields.t_end_ms in
+    let t_load_ms = getf p Fields.t_load_ms in
+    let t_sample_ms = getf p Fields.t_sample_ms in
+    let t_p_eval_ms = getf p Fields.t_p_eval_ms in
+    let t_eval_ms = getf p Fields.t_eval_ms in
+    let n_sample = getf p Fields.n_sample in
+    let n_p_eval = getf p Fields.n_p_eval in
+    let n_eval = getf p Fields.n_eval in
+    {
+      t_start_ms  ;
+      t_end_ms  ;
+      t_load_ms  ;
+      t_sample_ms  ;
+      t_p_eval_ms  ;
+      t_eval_ms  ;
+      n_sample  ;
+      n_p_eval  ;
+      n_eval
+    }
 end
 
 type model = Types.Model.t Ctypes.structure Ctypes.ptr
@@ -516,3 +557,72 @@ let sample_token context ~candidates =
   Stubs.sample_token_greedy context candidates
 
 let grammar_accept_token = Stubs.grammar_accept_token
+
+type beam_view = {
+  tokens : token_buff ;
+  p : float ;
+  eob : bool
+}
+
+type beam_search_callback =
+  beam_views:beam_view array ->
+  common_prefix_length:int ->
+  last_call:bool ->
+  unit
+
+let beam_search context callback ~n_beams ~n_past ~n_predict ~n_threads =
+  let callback : (unit Ctypes_static.ptr -> Types.Beams_state.t structure -> unit) =
+    fun _null beams_state ->
+      let open Types.Beams_state in
+      let beam_views = getf beams_state Fields.beam_views in
+      let n_beams =
+        getf beams_state Fields.n_beams
+        |> Unsigned.Size_t.to_int in
+      let common_prefix_length =
+        getf beams_state Fields.common_prefix_length
+        |> Unsigned.Size_t.to_int in
+      let last_call = getf beams_state Fields.last_call in
+      let beam_views =
+        CArray.from_ptr beam_views n_beams
+        |> CArray.to_list
+        |> List.map (fun view ->
+            let open Types.Beam_view in
+            let tokens = getf view Fields.tokens in
+            let n_token =
+              getf view Fields.n_token
+              |> Unsigned.Size_t.to_int in
+            let tokens = Ctypes.bigarray_of_ptr array1 n_token Int32 tokens in
+            let p = getf view Fields.p in
+            let eob = getf view Fields.eob in
+            { tokens; p; eob }
+          )
+        |> Array.of_list
+      in
+      callback
+        ~beam_views
+        ~common_prefix_length
+        ~last_call
+  in
+  Stubs.beam_search context callback Ctypes.null (Unsigned.Size_t.of_int n_beams) n_past n_predict n_threads
+
+let get_timings context =
+  let timings = Stubs.get_timings context in
+  Timings.get timings
+
+let print_timings = Stubs.print_timings
+
+let reset_timings = Stubs.reset_timings
+
+let print_system_info () =
+  let ptr = Stubs.print_system_info () in
+  let length = Stubs.strlen ptr |> Unsigned.Size_t.to_int in
+  Ctypes.string_from_ptr ptr ~length
+
+let log_set callback =
+  let callback : Log_level.t -> char Ctypes_static.ptr -> unit Ctypes_static.ptr -> unit =
+    fun log_level ptr _null ->
+      let length = Stubs.strlen ptr |> Unsigned.Size_t.to_int in
+      let string = Ctypes.string_from_ptr ptr ~length in
+      callback log_level string
+  in
+  Stubs.log_set callback Ctypes.null
