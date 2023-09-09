@@ -223,6 +223,8 @@ struct
 
       let quantize_output_tensor = field repr "quantize_output_tensor" bool
 
+      let only_copy = field repr "only_copy" bool
+
       let () = seal repr
     end
   end

@@ -46,6 +46,9 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   let n_ctx =
     foreign "llama_n_ctx" (ptr Context.repr @-> returning int)
 
+  let n_ctx_train =
+    foreign "llama_n_ctx_train" (ptr Context.repr @-> returning int)
+
   let n_embd =
     foreign "llama_n_embd" (ptr Context.repr @-> returning int)
 
@@ -57,6 +60,9 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
 
   let model_n_ctx =
     foreign "llama_model_n_ctx" (ptr Model.repr @-> returning int)
+
+  let model_n_ctx_train =
+    foreign "llama_model_n_ctx_train" (ptr Model.repr @-> returning int)
 
   let model_n_embd =
     foreign "llama_model_n_embd" (ptr Model.repr @-> returning int)
@@ -201,7 +207,10 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
       (ptr (ptr Grammar_element.repr) @-> size_t @-> size_t @-> returning (ptr Grammar.repr))
 
   let grammar_free =
-    foreign "llama_grammar_free" (ptr (Grammar.repr) @-> returning void)
+    foreign "llama_grammar_free" (ptr Grammar.repr @-> returning void)
+
+  let grammar_copy =
+    foreign "llama_grammar_copy" (ptr Grammar.repr @-> returning (ptr Grammar.repr))
 
   (* Sampling functions *)
 

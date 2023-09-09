@@ -185,6 +185,8 @@ struct
   let allow_requantize (qp : t) = !@ (qp |-> Types.Model_quantize_params.Fields.allow_requantize)
 
   let quantize_output_tensor (qp : t) = !@ (qp |-> Types.Model_quantize_params.Fields.quantize_output_tensor)
+
+  let only_copy (qp : t) = !@ (qp |-> Types.Model_quantize_params.Fields.only_copy)
 end
 
 module Token_data_array =
@@ -309,6 +311,8 @@ let n_vocab = Stubs.n_vocab
 
 let n_ctx = Stubs.n_ctx
 
+let n_ctx_train = Stubs.n_ctx_train
+
 let n_embd = Stubs.n_embd
 
 let vocab_type = Stubs.vocab_type
@@ -316,6 +320,8 @@ let vocab_type = Stubs.vocab_type
 let model_n_vocab = Stubs.model_n_vocab
 
 let model_n_ctx = Stubs.model_n_ctx
+
+let model_n_ctx_train = Stubs.model_n_ctx_train
 
 let model_n_embd = Stubs.model_n_embd
 
@@ -507,6 +513,11 @@ let grammar_init (rules : Grammar_element.t array array) ~start_rule_index =
   in
   Gc.finalise Stubs.grammar_free result ;
   result
+
+let grammar_copy grammar =
+  let grammar = Stubs.grammar_copy grammar in
+  Gc.finalise Stubs.grammar_free grammar ;
+  grammar
 
 let sample_repetition_penalty context ~candidates ~last_tokens ~penalty =
   let dim = Array1.dim last_tokens |> Unsigned.Size_t.of_int in

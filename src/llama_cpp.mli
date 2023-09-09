@@ -113,6 +113,8 @@ sig
   val allow_requantize : t -> bool
 
   val quantize_output_tensor : t -> bool
+
+  val only_copy : t -> bool
 end
 
 module Token_data_array : sig
@@ -199,6 +201,8 @@ val n_vocab : context -> int
 
 val n_ctx : context -> int
 
+val n_ctx_train : context -> int
+
 val n_embd : context -> int
 
 val vocab_type : context -> vocab_type
@@ -206,6 +210,8 @@ val vocab_type : context -> vocab_type
 val model_n_vocab : model -> int
 
 val model_n_ctx : model -> int
+
+val model_n_ctx_train : model -> int
 
 val model_n_embd : model -> int
 
@@ -323,6 +329,8 @@ val token_to_piece_with_model : model -> token -> (string, [`Invalid_token]) res
 (** Grammar *)
 
 val grammar_init : Grammar_element.t array array -> start_rule_index:int -> grammar
+
+val grammar_copy : grammar -> grammar
 
 (** Sampling functions *)
 
