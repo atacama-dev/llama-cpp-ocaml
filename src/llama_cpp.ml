@@ -291,7 +291,12 @@ let backend_init ~numa = Stubs.backend_init numa
 
 let backend_free = Stubs.backend_free
 
-let load_model_from_file = Stubs.load_model_from_file
+let load_model_from_file model params =
+  let ptr = Stubs.load_model_from_file model params in
+  if Ctypes.is_null ptr then
+    None
+  else
+    Some ptr
 
 let free_model = Stubs.free_model
 

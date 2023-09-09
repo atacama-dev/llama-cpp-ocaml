@@ -176,7 +176,7 @@ val backend_free : unit -> unit
 val load_model_from_file :
   string ->
   Context_params.t ->
-  model
+  model option
 
 (* TODO: should we use a finalizer to free those? *)
 val free_model : model -> unit
