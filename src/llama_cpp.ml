@@ -471,9 +471,7 @@ let token_to_piece context token =
     let buff = CArray.make char len in
     let ptr = CArray.start buff in
     let written = Stubs.token_to_piece context token ptr len in
-    if written = 0 then
-      Error `Invalid_token
-    else if written < 0 then
+    if written < 0 then
       (* Buffer too small *)
       loop (- written)
     else
