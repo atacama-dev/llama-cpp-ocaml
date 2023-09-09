@@ -1,0 +1,4 @@
+(test
+   (name llama_test)
+   (libraries llama_cpp)
+)
