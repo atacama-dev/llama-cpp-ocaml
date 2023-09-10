@@ -1,1 +1,22 @@
 (lang dune 2.8)
+(name ocaml-llama-cpp)
+(version 0.0.1)
+(generate_opam_files true)
+(source (uri git+https://github.com/atacama/ocaml-llama-cpp))
+(bug_reports http://github.com/atacama/ocaml-llama-cpp)
+(homepage http://github.com/atacama/ocaml-llama-cpp)
+(authors "Ilias Garnier")
+(maintainers "igarnier@protonmail.com")
+
+(package
+   (name ocaml-llama-cpp)
+   (synopsis "Ctypes bindings to llama.cpp")
+   (description "ocaml-llama-cpp is a MIT-licensed set of ctypes bindings to llama.cpp, a performant and lightweight library to perform inference on various kinds of large language models.")
+   (license MIT)
+   (tags (experimental))
+   (depends
+     (ocaml (>= 4.14.1))
+     (ctypes (>= 0.21.1))
+     (ctypes-foreign (>= 0.21.1))
+   )
+)
