@@ -1,7 +1,7 @@
 (lang dune 2.8)
 (name llama-cpp-ocaml)
 (version 0.0.1)
-(generate_opam_files true)
+(generate_opam_files false)
 (source (uri git+https://github.com/atacama-dev/llama-cpp-ocaml))
 (bug_reports http://github.com/atacama-dev/llama-cpp-ocaml)
 (homepage http://github.com/atacama-dev/llama-cpp-ocaml)

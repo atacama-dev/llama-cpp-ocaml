@@ -10,6 +10,7 @@ license: "MIT"
 tags: ["experimental"]
 homepage: "http://github.com/atacama-dev/llama-cpp-ocaml"
 bug-reports: "http://github.com/atacama-dev/llama-cpp-ocaml"
+available: arch = "x86_64" | arch = "arm64"
 depends: [
   "dune" {>= "2.8"}
   "ocaml" {>= "4.14.1"}
