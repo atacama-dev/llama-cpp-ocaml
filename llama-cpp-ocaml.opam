@@ -8,8 +8,8 @@ maintainer: ["igarnier@protonmail.com"]
 authors: ["Ilias Garnier"]
 license: "MIT"
 tags: ["experimental"]
-homepage: "http://github.com/atacama/llama-cpp-ocaml"
-bug-reports: "http://github.com/atacama/llama-cpp-ocaml"
+homepage: "http://github.com/atacama-dev/llama-cpp-ocaml"
+bug-reports: "http://github.com/atacama-dev/llama-cpp-ocaml"
 depends: [
   "dune" {>= "2.8"}
   "ocaml" {>= "4.14.1"}
@@ -31,4 +31,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/atacama/llama-cpp-ocaml"
+dev-repo: "git+https://github.com/atacama-dev/llama-cpp-ocaml"

@@ -2,9 +2,9 @@
 (name llama-cpp-ocaml)
 (version 0.0.1)
 (generate_opam_files true)
-(source (uri git+https://github.com/atacama/llama-cpp-ocaml))
-(bug_reports http://github.com/atacama/llama-cpp-ocaml)
-(homepage http://github.com/atacama/llama-cpp-ocaml)
+(source (uri git+https://github.com/atacama-dev/llama-cpp-ocaml))
+(bug_reports http://github.com/atacama-dev/llama-cpp-ocaml)
+(homepage http://github.com/atacama-dev/llama-cpp-ocaml)
 (authors "Ilias Garnier")
 (maintainers "igarnier@protonmail.com")
 
