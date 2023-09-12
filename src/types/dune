@@ -1,11 +1,13 @@
 (library
   (name llama_types)
+  (package llama-cpp-ocaml)
   (modules Llama_types)
   (libraries ctypes.stubs)
 )
 
 (library
   (name llama_fixed_types)
+  (package llama-cpp-ocaml)
   (modules Llama_fixed_types Llama_c_generated_types)
   (libraries ctypes.stubs ctypes llama_types)
 )

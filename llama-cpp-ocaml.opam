@@ -3,13 +3,13 @@ opam-version: "2.0"
 version: "0.0.1"
 synopsis: "Ctypes bindings to llama.cpp"
 description:
-  "ocaml-llama-cpp is a MIT-licensed set of ctypes bindings to llama.cpp, a performant and lightweight library to perform inference on various kinds of large language models."
+  "llama-cpp-ocaml is a MIT-licensed set of ctypes bindings to llama.cpp, a performant and lightweight library to perform inference on various kinds of large language models."
 maintainer: ["igarnier@protonmail.com"]
 authors: ["Ilias Garnier"]
 license: "MIT"
 tags: ["experimental"]
-homepage: "http://github.com/atacama/ocaml-llama-cpp"
-bug-reports: "http://github.com/atacama/ocaml-llama-cpp"
+homepage: "http://github.com/atacama/llama-cpp-ocaml"
+bug-reports: "http://github.com/atacama/llama-cpp-ocaml"
 depends: [
   "dune" {>= "2.8"}
   "ocaml" {>= "4.14.1"}
@@ -31,4 +31,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/atacama/ocaml-llama-cpp"
+dev-repo: "git+https://github.com/atacama/llama-cpp-ocaml"

@@ -1,5 +1,6 @@
 (library
   (name llama_functions)
+  (package llama-cpp-ocaml)
   (modules Llama_functions)
   (libraries ctypes.stubs ctypes.foreign ctypes llama_fixed_types)
 )
