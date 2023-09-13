@@ -7,6 +7,7 @@
 (homepage http://github.com/atacama-dev/llama-cpp-ocaml)
 (authors "Ilias Garnier")
 (maintainers "igarnier@protonmail.com")
+(implicit_transitive_deps false)
 
 (package
    (name llama-cpp-ocaml)
@@ -18,5 +19,8 @@
      (ocaml (>= 4.14.1))
      (ctypes (>= 0.21.1))
      (ctypes-foreign (>= 0.21.1))
+     (integers (>= 0.7.0))
+     (bigarray-compat (>= 1.1.0))
+     (dune-configurator (>= 2.8))
    )
 )

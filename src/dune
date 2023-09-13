@@ -17,7 +17,7 @@
   (name llama_cpp)
   (package llama-cpp-ocaml)
   (modules Llama_cpp Llama_generated)
-  (libraries ctypes ctypes.foreign str llama_fixed_types llama_functions)
+  (libraries ctypes ctypes.foreign str integers bigarray-compat llama_fixed_types llama_functions)
   (foreign_archives llama_bindings)
   (foreign_stubs
    (language c)
