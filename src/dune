@@ -1,11 +1,14 @@
 (data_only_dirs llama.cpp)
 
 (rule
-  (deps (source_tree llama.cpp))
+  (deps (source_tree llama.cpp) produce-static-archive.patch)
   (targets libllama_bindings.a dllllama_bindings.so)
   (action
     (no-infer
       (progn
+        (with-stdin-from
+         produce-static-archive.patch
+         (run patch -d llama.cpp --binary -p1))
         (chdir llama.cpp (run make libllama.so libllama.a))
         (copy llama.cpp/libllama.a libllama_bindings.a)
         (copy llama.cpp/libllama.so dllllama_bindings.so)))))
