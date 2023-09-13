@@ -8,7 +8,7 @@
       (progn
         (with-stdin-from
          produce-static-archive.patch
-         (run patch -d llama.cpp --binary -p1))
+         (run patch -d llama.cpp -p1))
         (chdir llama.cpp (run make libllama.so libllama.a))
         (copy llama.cpp/libllama.a libllama_bindings.a)
         (copy llama.cpp/libllama.so dllllama_bindings.so)))))
