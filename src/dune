@@ -1,17 +1,49 @@
 (data_only_dirs llama.cpp)
 
+;; linux
 (rule
-  (deps (source_tree llama.cpp) produce-static-archive.patch)
+  (alias build-llama)
   (targets libllama_bindings.a dllllama_bindings.so)
+  (enabled_if
+   (or
+    (= %{system} linux)
+    (= %{system} linux_elf)
+    (= %{system} elf)))
+  (deps (source_tree llama.cpp) produce-static-archive.patch)
   (action
     (no-infer
       (progn
+        (run chmod +w llama.cpp/Makefile)
         (with-stdin-from
          produce-static-archive.patch
          (run patch -d llama.cpp -p1))
-        (chdir llama.cpp (run make libllama.so libllama.a))
+        (run make -C llama.cpp libllama.so libllama.a)
         (copy llama.cpp/libllama.a libllama_bindings.a)
         (copy llama.cpp/libllama.so dllllama_bindings.so)))))
+
+;; bsd
+(rule
+  (alias build-llama)
+  (targets libllama_bindings.a dllllama_bindings.so)
+  (enabled_if
+   (or
+    (= %{system} netbsd)
+    (= %{system} freebsd)
+    (= %{system} openbsd)
+    (= %{system} bsd)
+    (= %{system} bsd_elf)))
+  (deps (source_tree llama.cpp) produce-static-archive.patch)
+  (action
+    (no-infer
+      (progn
+        (run chmod +w llama.cpp/Makefile)
+        (with-stdin-from
+         produce-static-archive.patch
+         (run patch -d llama.cpp -p1))
+        (run gmake -C llama.cpp libllama.so libllama.a)
+        (copy llama.cpp/libllama.a libllama_bindings.a)
+        (copy llama.cpp/libllama.so dllllama_bindings.so)))))
+
 
 (library
   (name llama_cpp)
