@@ -9,16 +9,16 @@ let () =
       let library_flags =
         match C.ocaml_config_var c "system" with
         | Some ("linux" | "linux_elf" | "elf") ->
-            link [ "llama_bindings"; "stdc++" ]
+          link [ "llama_bindings"; "stdc++" ]
         | Some "macosx" ->
           (* TODO *)
-          assert false
+          link [ "llama_bindings"; "stdc++" ]
         | Some "mingw64" ->
           (* TODO *)
-          assert false
+          link [ "llama_bindings"; "stdc++" ]
         | Some ("netbsd" | "freebsd" | "openbsd" | "bsd" | "bsd_elf") ->
           (* TODO *)
-          assert false
+          link [ "llama_bindings"; "stdc++"]
         | Some system -> C.die "unsupported system: %s" system
         | None -> C.die "unsupported system"
       in
