@@ -22,7 +22,7 @@ type file_type =
   | MOSTLY_Q6_K
   | GUESSED
 
-type vocab_type = Spm | Bpe
+type vocab_type = Spm (** Sentencepiece *) | Bpe (** Byte Pair Encoding *)
 
 type token_buff = (int32, int32_elt, c_layout) Array1.t
 
@@ -130,17 +130,19 @@ end
 module Grammar_element :
 sig
   type gretype =
-  | END
-  | ALT
-  | RULE_REF
-  | CHAR
-  | CHAR_NOT
-  | CHAR_RNG_UPPER
-  | CHAR_ALT
+  | END (** End of rule definition *)
+  | ALT (** Start of alternate definition for rule *)
+  | RULE_REF (** Non-terminal element: reference to rule *)
+  | CHAR (** Terminal element: character (code point) *)
+  | CHAR_NOT (** Inverse char(s) (\[^a\], \[^a-b\] \[^abc\]) *)
+  | CHAR_RNG_UPPER (** Modifies a preceding [CHAR] or [CHAR_ALT] to be
+                       an inclusive range (\[a-z\]) *)
+  | CHAR_ALT (** Modifies a preceding [CHAR] or [CHAR_ALT] to
+                 add an alternate char to match (\[ab\], \[a-zA\])*)
 
   type t = {
     type_ : gretype ;
-    value : Unsigned.UInt32.t (* Unicode code point or rule ID *)
+    value : int (** Unicode code point or rule ID *)
   }
 end
 

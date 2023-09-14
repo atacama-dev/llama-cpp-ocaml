@@ -231,14 +231,14 @@ struct
 
   type t = {
     type_ : gretype ;
-    value : Unsigned.UInt32.t (* Unicode code point or rule ID *)
+    value : int (* Unicode code point or rule ID *)
   }
 
   let make_internal { type_; value } =
     let open Types.Grammar_element in
     let result = make repr in
     setf result Fields.type_ type_ ;
-    setf result Fields.value value ;
+    setf result Fields.value (Unsigned.UInt32.of_int value) ;
     result
 end
 
