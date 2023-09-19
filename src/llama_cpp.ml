@@ -46,7 +46,44 @@ type token_type = Types.Token_type.t =
   | Unused
   | Byte
 
-module Log_level = struct
+module Token_buffer = struct
+  type t = (int32, int32_elt, c_layout) Array1.t
+
+  let dim (arr : t) = Array1.dim arr
+
+  let init f = Array1.init Int32 c_layout f
+
+  let sub (arr : t) ofs len : t = Array1.sub arr ofs len
+
+  let iter f (arr : t) =
+    for i = 0 to Array1.dim arr - 1 do
+      f (Array1.unsafe_get arr i)
+    done
+
+  let iteri f (arr : t) =
+    for i = 0 to Array1.dim arr - 1 do
+      f i (Array1.unsafe_get arr i)
+    done
+
+  let to_seq (arr : t) =
+    let rec loop (i : int) () =
+      if i >= dim arr then Seq.Nil
+      else
+        let elt = Array1.unsafe_get arr i in
+        Seq.Cons (elt, loop (i + 1))
+    in
+    loop 0
+
+  let of_seq (seq : int32 Seq.t) : t =
+    Array.of_seq seq
+    |> Array1.of_array Int32 c_layout
+
+  let of_array (arr : int32 array) = Array1.of_array Int32 c_layout arr
+end
+
+
+module Log_level =
+struct
   type t = Types.Log_level.t = Error | Warn | Info
 end
 
@@ -380,7 +417,7 @@ let set_state_data context (buff : buff) =
   in
   Stubs.set_state_data context ptr |> Unsigned.Size_t.to_int
 
-let load_session_file context ~path_session (tokens : token_buff) =
+let load_session_file context ~path_session (tokens : Token_buffer.t) =
   let path_session = CArray.of_string path_session |> CArray.start in
   let n_token_count_out = Ctypes.allocate size_t Unsigned.Size_t.zero in
   let token_buff_ptr = Ctypes.bigarray_start Ctypes.array1 tokens in
@@ -392,7 +429,7 @@ let load_session_file context ~path_session (tokens : token_buff) =
   else
     None
 
-let save_session_file context ~path_session (tokens : token_buff) =
+let save_session_file context ~path_session (tokens : Token_buffer.t) =
   let path_session = CArray.of_string path_session |> CArray.start in
   let token_buff_ptr = Ctypes.bigarray_start Ctypes.array1 tokens in
   let token_buff_len = Array1.dim tokens |> Unsigned.Size_t.of_int in

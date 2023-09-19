@@ -24,8 +24,6 @@ type file_type =
 
 type vocab_type = Spm (** Sentencepiece *) | Bpe (** Byte Pair Encoding *)
 
-type token_buff = (int32, int32_elt, c_layout) Array1.t
-
 type logits = (float, float32_elt, c_layout) Array2.t
 
 type embeddings = (float, float32_elt, c_layout) Array1.t
@@ -38,6 +36,36 @@ type token_type =
   | User_defined
   | Unused
   | Byte
+
+module Token_buffer : sig
+  (** The type of token buffers, represented as arrays of {!int32}. *)
+  type t = (token, int32_elt, c_layout) Array1.t
+
+  (** [dim arr] is the length of the token buffer. *)
+  val dim : t -> int
+
+  (** [init len f] initializes a token buffer of length [len] with elements [f 0] to [f (len - 1)].
+      This is an alias to {!Array1.init}. *)
+  val init : int -> (int -> token) -> (token, int32_elt, c_layout) Array1.t
+
+  (** [sub] is an alias to {!Array1.sub} *)
+  val sub : t -> int -> int -> t
+
+  (** [iter f arr] iterates over [arr] using [f]. *)
+  val iter : (token -> unit) -> t -> unit
+
+  (** [iteri f arr] iterates over [arr] using [f]. *)
+  val iteri : (int -> token -> unit) -> t -> unit
+
+  (** [to_seq arr] constructs a sequence over the array [arr]. Note that [arr] is not copied. *)
+  val to_seq : t -> token Seq.t
+
+  (** [of_seq seq] constructs an array from a sequence. *)
+  val of_seq : token Seq.t -> t
+
+  (** [of_array] is an alias to {!Array1.of_array}. *)
+  val of_array : int32 array -> t
+end
 
 module Log_level : sig
   type t = Error | Warn | Info
@@ -261,10 +289,10 @@ val set_state_data : context ->
 
 (** Load session file in given buffer. If buffer is too small, returns [None], otherwise returns
     the number of elements actually written in the buffer. *)
-val load_session_file : context -> path_session:string -> token_buff -> int option
+val load_session_file : context -> path_session:string -> Token_buffer.t -> int option
 
 (** Save session file in given buffer. Return [true] on success. *)
-val save_session_file : context -> path_session:string -> token_buff -> bool
+val save_session_file : context -> path_session:string -> Token_buffer.t -> bool
 
 (** Run the llama inference to obtain the logits and probabilities for the next token.
     tokens + n_tokens is the provided batch of new tokens to process
@@ -276,7 +304,7 @@ val save_session_file : context -> path_session:string -> token_buff -> bool
     Rows: n_tokens
     Cols: n_vocab
  *)
-val eval : context -> token_buff -> n_tokens:int -> n_past:int -> n_threads:int -> logits option
+val eval : context -> Token_buffer.t -> n_tokens:int -> n_past:int -> n_threads:int -> logits option
 
 (** Same as llama_eval, but use float matrix input directly. *)
 val eval_embd : context -> (float, float32_elt, c_layout) Array1.t -> n_tokens:int -> n_past:int -> n_threads:int -> logits option
@@ -316,9 +344,9 @@ val token_nl : context -> token
     The tokens buffer must be large enough to hold the resulting tokens.
     Returns the number of written tokens on success, no more than n_max_tokens
     Returns [Error (`Too_many_tokens n)] on failure - the number of tokens that would have been returned *)
-val tokenize : context -> text:string -> token_buff -> n_max_tokens:int -> add_bos:bool -> (int, [`Too_many_tokens of int]) result
+val tokenize : context -> text:string -> Token_buffer.t -> n_max_tokens:int -> add_bos:bool -> (int, [`Too_many_tokens of int]) result
 
-val tokenize_with_model : model -> text:string -> token_buff -> n_max_tokens:int -> add_bos:bool -> (int, [`Too_many_tokens of int]) result
+val tokenize_with_model : model -> text:string -> Token_buffer.t -> n_max_tokens:int -> add_bos:bool -> (int, [`Too_many_tokens of int]) result
 
 (** Token Id -> Piece.
     Uses the vocabulary in the provided context.
@@ -337,10 +365,10 @@ val grammar_copy : grammar -> grammar
 (** Sampling functions *)
 
 (** Repetition penalty described in CTRL academic paper https://arxiv.org/abs/1909.05858, with negative logit fix. *)
-val sample_repetition_penalty : context -> candidates:Token_data_array.t -> last_tokens:token_buff -> penalty:float -> unit
+val sample_repetition_penalty : context -> candidates:Token_data_array.t -> last_tokens:Token_buffer.t -> penalty:float -> unit
 
 (** Frequency and presence penalties described in OpenAI API https://platform.openai.com/docs/api-reference/parameter-details. *)
-val sample_frequency_and_presence_penalties : context -> candidates:Token_data_array.t -> last_tokens:token_buff -> alpha_frequency:float ->  alpha_presence:float -> unit
+val sample_frequency_and_presence_penalties : context -> candidates:Token_data_array.t -> last_tokens:Token_buffer.t -> alpha_frequency:float ->  alpha_presence:float -> unit
 
 (** Apply classifier-free guidance to the logits as described in academic paper "Stay on topic with Classifier-Free Guidance" https://arxiv.org/abs/2306.17806
     @param candidates A vector of `llama_token_data` containing the candidate tokens, the logits must be directly extracted from the original generation context without being sorted.
@@ -396,7 +424,7 @@ val grammar_accept_token : context -> grammar -> token -> unit
 (** Beam search *)
 
 type beam_view = {
-  tokens : token_buff ;
+  tokens : Token_buffer.t ;
   p : float ;
   eob : bool
 }
