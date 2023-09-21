@@ -1,0 +1,4 @@
+(executable
+   (name prompt_repl)
+   (libraries llama_cpp lwt lwt.unix react zed lambda-term iter containers-data)
+)
