@@ -46,6 +46,8 @@ type token_type = Types.Token_type.t =
   | Unused
   | Byte
 
+let zero_token = 0l
+
 module Token_buffer = struct
   type t = (int32, int32_elt, c_layout) Array1.t
 
@@ -79,6 +81,8 @@ module Token_buffer = struct
     |> Array1.of_array Int32 c_layout
 
   let of_array (arr : int32 array) = Array1.of_array Int32 c_layout arr
+
+  let of_list (ls : int32 list) = Array1.of_array Int32 c_layout (Array.of_list ls)
 end
 
 

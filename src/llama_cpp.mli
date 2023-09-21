@@ -37,6 +37,8 @@ type token_type =
   | Unused
   | Byte
 
+val zero_token : int32
+
 module Token_buffer : sig
   (** The type of token buffers, represented as arrays of {!int32}. *)
   type t = (token, int32_elt, c_layout) Array1.t
@@ -65,6 +67,9 @@ module Token_buffer : sig
 
   (** [of_array] is an alias to {!Array1.of_array}. *)
   val of_array : int32 array -> t
+
+  (** [of_list ls] is [of_array (Array.of_list ls)]. *)
+  val of_list : int32 list -> t
 end
 
 module Log_level : sig
