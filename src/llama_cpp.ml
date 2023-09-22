@@ -609,7 +609,7 @@ let sample_token_greedy context ~candidates =
   Stubs.sample_token_greedy context candidates
 
 let sample_token context ~candidates =
-  Stubs.sample_token_greedy context candidates
+  Stubs.sample_token context candidates
 
 let grammar_accept_token = Stubs.grammar_accept_token
 
