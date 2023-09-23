@@ -299,19 +299,16 @@ val load_session_file : context -> path_session:string -> Token_buffer.t -> int 
 (** Save session file in given buffer. Return [true] on success. *)
 val save_session_file : context -> path_session:string -> Token_buffer.t -> bool
 
-(** Run the llama inference to obtain the logits and probabilities for the next token.
-    tokens + n_tokens is the provided batch of new tokens to process
-    n_past is the number of tokens to use from previous eval calls
-    Returns [Some logits] on success.
-
-    The logits for the last token are stored in the last row
-    Can be mutated in order to change the probabilities of the next token
-    Rows: n_tokens
-    Cols: n_vocab
+(** [eval ctx tbuff ~n_tokens ~n_past ~n_threads] runs the llama inference to obtain the logits and probabilities for the next token.
+    The prefix of [tbuff] of length [n_tokens] is the provided batch of new tokens to process.
+    [n_past] is the number of tokens to use from previous [eval] calls.
+    Returns [Some logits] on success where [logits] is a two-dimensional array with number of rows equal to [n_tokens] and
+    number of colums equal to [n_vocab]. The logits for the last token are stored in the last row.
+    These logits can be mutated in order to change the probabilities of the next token.
  *)
 val eval : context -> Token_buffer.t -> n_tokens:int -> n_past:int -> n_threads:int -> logits option
 
-(** Same as llama_eval, but use float matrix input directly. *)
+(** Same as llama_eval, but use a float matrix input directly. *)
 val eval_embd : context -> (float, float32_elt, c_layout) Array1.t -> n_tokens:int -> n_past:int -> n_threads:int -> logits option
 
 (** Export a static computation graph for context of 511 and batch size of 1
@@ -320,8 +317,7 @@ val eval_embd : context -> (float, float32_elt, c_layout) Array1.t -> n_tokens:i
     IMPORTANT: do not use for anything else other than debugging and testing! *)
 val eval_export : context -> string -> bool
 
-(** Get the embeddings for the input
-    shape: [n_embd] (1-dimensional) *)
+(** Get the embeddings for the input shape: [n_embd] (1-dimensional) *)
 val get_embeddings : context -> embeddings
 
 (** Vocab *)
