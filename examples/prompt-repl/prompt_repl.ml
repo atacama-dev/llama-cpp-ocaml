@@ -34,7 +34,9 @@ module Interpreter = struct
       n_max_samples : int ; (* Maximum sampling budget per user input *)
       n_past : int ;
       embd : token list;
-      last_tokens : token list }
+      last_tokens : token list ;
+      last_logits : Llama_cpp.logits option
+    }
 
   let make_state ?(n_keep = 32) ?(n_batch = 32) ?(n_threads = 8) ?(n_max_samples = 512) ctx =
     {
@@ -46,15 +48,16 @@ module Interpreter = struct
       n_max_samples ;
       n_past = 0 ;
       embd = [] ;
-      last_tokens = []
+      last_tokens = [];
+      last_logits = None
     }
 
   (* TODO: should we really add [bos] systematically? *)
 
   (* Tokenize prompt *)
-  let tokenize ctx text =
+  let tokenize ~add_bos ctx text =
     let tokens_buff = Token_buffer.init 1024 (Fun.const Llama_cpp.zero_token) in
-    match Llama_cpp.tokenize ctx ~text tokens_buff ~n_max_tokens:1024 ~add_bos:true with
+    match Llama_cpp.tokenize ctx ~text tokens_buff ~n_max_tokens:1024 ~add_bos with
     | Error (`Too_many_tokens count) ->
       let tokens_buff = Token_buffer.init count (Fun.const Llama_cpp.zero_token) in
       (match Llama_cpp.tokenize ctx ~text tokens_buff ~n_max_tokens:count ~add_bos:true with
@@ -116,7 +119,7 @@ module Interpreter = struct
 
   let rec sample_batch ctx tokens n_batch n_threads n_past i =
     let len = Token_buffer.dim tokens in
-    assert (len >= 0) ;
+    assert (len > 0) ;
     let batch_size = Int.min len n_batch in
     let res =
       Llama_cpp.eval
@@ -164,30 +167,40 @@ module Interpreter = struct
     in
     let tokens = Token_buffer.of_list embd in
     let logits, n_past = sample_batch state.ctx tokens state.n_batch state.n_threads n_past 0 in
-    ({ state with
+    { state with
       embd = [] ;
-      n_past
-     },
-     logits)
+      n_past ;
+      last_logits = Some logits
+    }
 
   (* This produces a transient sequence because of the shared [candidate] array *)
-  let step state prompt =
+  let step ~add_bos state prompt =
     let ctx = state.ctx in
-    let tokens = tokenize ctx prompt |> Token_buffer.to_seq |> List.of_seq in
+    let tokens = tokenize ~add_bos ctx prompt |> Token_buffer.to_seq |> List.of_seq in
     let state = { state with embd = tokens } in
-    let state, logits = perform_inference state in
+    let state =
+      if tokens = [] then
+        state
+      else
+        perform_inference state
+    in
+    let logits = Option.get state.last_logits in
     let logits = Array2.slice_left logits 0 in
     let candidates = Llama_cpp.Token_data_array.create logits in
     let rec loop state () =
-      let new_token_id = Llama_cpp.sample_token ctx ~candidates in
+      let last_tokens = Token_buffer.of_list (List.rev state.last_tokens) in
+      Llama_cpp.sample_repetition_penalty ctx ~candidates ~last_tokens ~penalty:1.1 ;
+      let new_token_id = Llama_cpp.sample_token_greedy ctx ~candidates in
       let embd = new_token_id :: state.embd in
       let last_tokens = new_token_id :: state.last_tokens in
       let state = { state with last_tokens; embd } in
-      let next_element = (new_token_id, state) in
       if Int32.equal new_token_id (Llama_cpp.token_eos state.ctx) then
+        let next_element = (new_token_id, state) in
         Seq.Cons (next_element, Seq.empty)
       else
-        let state, logits = perform_inference state in
+        let state = perform_inference state in
+        let next_element = (new_token_id, state) in
+        let logits = Option.get state.last_logits in
         let logits = Array2.slice_left logits 0 in
         Llama_cpp.Token_data_array.write_logits candidates logits ;
         Seq.Cons (next_element, loop state)
@@ -235,6 +248,7 @@ let token_to_string (state : Interpreter.state) token =
    We return the final state upon termination. *)
 let rec sampling_loop continue budget term prev_state seq : Interpreter.state Lwt.t =
   if not !continue || budget <= 0 then
+    let* () = LTerm.fprint term "<generation interrupted>\n" in
     Lwt.return prev_state
   else
     match Seq.uncons seq with
@@ -268,7 +282,7 @@ let sampling term prev_state seq =
   let* () = LTerm.leave_raw_mode term mode in
   state
 
-let rec loop term history state =
+let rec loop ~add_bos term history state =
   Lwt.catch (fun () ->
       let rl = new read_line ~term ~history:(LTerm_history.contents history) ~state in
       rl#run >|= fun command -> Some command)
@@ -278,16 +292,21 @@ let rec loop term history state =
   >>= function
   | Some command ->
     let command_utf8 = Zed_string.to_utf8 command in
-    let state_seq = Interpreter.step state command_utf8 in
+    let state_seq = Interpreter.step ~add_bos state command_utf8 in
     let* state = sampling term state state_seq in
     LTerm_history.add history command;
-    loop term history state
+    let state = { state with n = state.n + 1 } in
+    loop ~add_bos:false term history state
   | None ->
-    loop term history state
+    loop ~add_bos term history state
 
 (* +-----------------------------------------------------------------+
    | Entry point                                                     |
    +-----------------------------------------------------------------+ *)
+
+let print_info term =
+  let* () = LTerm.fprint term "Use ctrl-c to interrupt prompt generation. LLM context is kept across interruptions.\n" in
+  LTerm.fprint term "Use ctrl-d to quit.\n"
 
 let main model =
   let* () = LTerm_inputrc.load () in
@@ -304,7 +323,8 @@ let main model =
       let ctx = Llama_cpp.new_context_with_model model ctx_params in
       let state = Interpreter.make_state ctx in
       let* term = Lazy.force LTerm.stdout in
-      loop term (LTerm_history.create []) state)
+      let* () = print_info term in
+      loop ~add_bos:true term (LTerm_history.create []) state)
     (function
       | LTerm_read_line.Interrupt -> Lwt.return ()
       | exn -> Lwt.fail exn)
