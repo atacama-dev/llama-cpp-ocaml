@@ -292,6 +292,9 @@ val copy_state_data : context ->
 val set_state_data : context ->
   (char, int8_unsigned_elt, c_layout) Array1.t -> int
 
+(** Clones a context. The model and parameters are not cloned however, and must be given as arguments. *)
+val clone : context -> model -> Context_params.t -> context
+
 (** Load session file in given buffer. If buffer is too small, returns [None], otherwise returns
     the number of elements actually written in the buffer. *)
 val load_session_file : context -> path_session:string -> Token_buffer.t -> int option

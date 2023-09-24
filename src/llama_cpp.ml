@@ -421,6 +421,15 @@ let set_state_data context (buff : buff) =
   in
   Stubs.set_state_data context ptr |> Unsigned.Size_t.to_int
 
+let clone context model params =
+  let size = get_state_size context in
+  let buff = Array1.create Char c_layout size in
+  let written = copy_state_data context buff in
+  assert (written <= size) ;
+  let fresh_context = new_context_with_model model params in
+  let _read = set_state_data fresh_context buff in
+  fresh_context
+
 let load_session_file context ~path_session (tokens : Token_buffer.t) =
   let path_session = CArray.of_string path_session |> CArray.start in
   let n_token_count_out = Ctypes.allocate size_t Unsigned.Size_t.zero in
