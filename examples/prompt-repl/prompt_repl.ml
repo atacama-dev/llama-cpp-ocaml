@@ -52,8 +52,6 @@ module Interpreter = struct
       last_logits = None
     }
 
-  (* TODO: should we really add [bos] systematically? *)
-
   (* Tokenize prompt *)
   let tokenize ~add_bos ctx text =
     let tokens_buff = Token_buffer.init 1024 (Fun.const Llama_cpp.zero_token) in
