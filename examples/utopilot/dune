@@ -1,0 +1,46 @@
+(executables
+ (names utopilot)
+ (libraries compiler-libs.toplevel findlib.top unix lwt lwt.unix logs.lwt react threads zed lambda-term lwt_react utop iter llama_cpp)
+ (modes byte)
+ (link_flags -linkall)
+ (preprocess
+   (action
+    (run %{bin:cppo} -V OCAML:%{ocaml_version} %{input-file}))))
+
+(rule
+ (with-stdout-to
+  info-ocamlcommon.txt
+  (run %{bin:ocamlobjinfo} %{lib:compiler-libs.common:ocamlcommon.cma})))
+
+(rule
+ (with-stdout-to
+  info-ocamlbytecomp.txt
+  (run %{bin:ocamlobjinfo} %{lib:compiler-libs.bytecomp:ocamlbytecomp.cma})))
+
+(rule
+ (with-stdout-to
+  info-ocamltoplevel.txt
+  (run %{bin:ocamlobjinfo} %{lib:compiler-libs.toplevel:ocamltoplevel.cma})))
+
+(rule
+ (with-stdout-to
+  info-utop.txt
+  (run %{bin:ocamlobjinfo} %{dep:utopilot.bc})))
+
+(rule
+ (with-stdout-to
+  modules.txt
+  (run ./expunge/modules.exe %{dep:info-utop.txt} %{dep:info-ocamlcommon.txt}
+    %{dep:info-ocamlbytecomp.txt} %{dep:info-ocamltoplevel.txt})))
+
+(rule
+ (targets utop-expunged.bc)
+ (action
+  (run %{ocaml_where}/expunge%{ext_exe} %{dep:utopilot.bc} %{targets}
+    %{read-lines:modules.txt})))
+
+(install
+ (section bin)
+ (files
+  (utop-expunged.bc as utop)
+  (utopilot.bc as utop-full)))
