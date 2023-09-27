@@ -259,6 +259,8 @@ struct
     res
 end
 
+module BNF = Bnf
+
 module Grammar_element =
 struct
   type gretype = Types.Gretype.t =
@@ -275,12 +277,114 @@ struct
     value : int (* Unicode code point or rule ID *)
   }
 
+  let char code = (Uchar.to_char (Uchar.of_int code))
+
+  let pp fmtr { type_; value } =
+    let open Format in
+    match type_ with
+    | END -> fprintf fmtr "END"
+    | ALT -> fprintf fmtr "ALT"
+    | RULE_REF -> fprintf fmtr "RULE_REF(%d)" value
+    | CHAR -> fprintf fmtr "CHAR(%c)" (char value)
+    | CHAR_NOT -> fprintf fmtr "CHAR_NOT(%c)" (char value)
+    | CHAR_RNG_UPPER -> fprintf fmtr "CHAR_RNG_UPPER(%c)" (char value)
+    | CHAR_ALT -> fprintf fmtr "CHAR_ALT(%c)" (char value)
+
   let make_internal { type_; value } =
     let open Types.Grammar_element in
     let result = make repr in
     setf result Fields.type_ type_ ;
     setf result Fields.value (Unsigned.UInt32.of_int value) ;
     result
+
+  let gbnf_from_grammar ({ root; rules } : BNF.t) =
+    let gen =
+      let c = ref 0 in
+      fun () ->
+        let v = !c in
+        incr c ;
+        v
+    in
+    let table = Hashtbl.create 51 in
+    let id_of_nonterminal name =
+      match Hashtbl.find_opt table name with
+      | None ->
+        let next = gen () in
+        Hashtbl.add table name next ;
+        next
+      | Some id -> id
+    in
+    (* Note: the accumulator contains grammar elements in reverse order. *)
+    let rec gbnf_from_rule : BNF.elt list -> t list -> t list =
+      fun seq acc ->
+        match seq with
+        | [] -> acc
+        | seq :: rest ->
+          match seq with
+           | BNF.T_str s ->
+             let acc =
+               String.to_seq s
+               |> Seq.map (fun c ->
+                   { type_ = CHAR ;
+                     value = Uchar.of_char c |> Uchar.to_int })
+               |> Seq.fold_left (fun acc x -> x :: acc) acc
+             in
+             gbnf_from_rule rest acc
+           | BNF.T_cset [] ->
+             invalid_arg "gbnf_from_rule: empty character set"
+           | BNF.T_cset (c :: cs) ->
+             let c = { type_ = CHAR; value = Uchar.to_int c } in
+             let acc = List.fold_left (fun acc c ->
+                 let c = { type_ = CHAR_ALT; value = Uchar.to_int c } in
+                 c :: acc
+               ) (c :: acc) cs
+             in
+             gbnf_from_rule rest acc
+           | BNF.T_neg_cset [] ->
+             invalid_arg "gbnf_from_rule: empty character set"
+           | BNF.T_neg_cset (c :: cs) ->
+             let c = { type_ = CHAR_NOT; value = Uchar.to_int c } in
+             let acc = List.fold_left (fun acc c ->
+                 let c = { type_ = CHAR_ALT; value = Uchar.to_int c } in
+                 c :: acc
+               ) (c :: acc) cs
+             in
+             gbnf_from_rule rest acc
+           | T_range (lo, hi) ->
+             let lo = { type_ = CHAR ; value = Uchar.to_int lo } in
+             let hi = { type_ = CHAR_RNG_UPPER ; value = Uchar.to_int hi } in
+             gbnf_from_rule rest (hi :: lo :: acc)
+           | T_neg_range (lo, hi) ->
+             let lo = { type_ = CHAR_NOT ; value = Uchar.to_int lo } in
+             let hi = { type_ = CHAR_RNG_UPPER ; value = Uchar.to_int hi } in
+             gbnf_from_rule rest (hi :: lo :: acc)
+           | BNF.NT { name } ->
+             let value = id_of_nonterminal name in
+             let elt = { type_ = RULE_REF ; value } in
+             gbnf_from_rule rest (elt :: acc)
+    in
+    let end_ = { type_ = END ; value = 0 } in
+    let alt = { type_ = ALT ; value = 0 } in
+    let gbnf_from_alt_rules (alts : BNF.elt list list) =
+      let _, acc =
+        List.fold_left (fun (first, acc) rule ->
+            let acc = if first then acc else alt :: acc in
+            let acc = gbnf_from_rule rule acc in
+            (false, acc)
+          ) (true, []) alts
+      in
+      List.rev (end_ :: acc)
+      |> Array.of_list
+    in
+    let rules =
+      List.map (fun (rule : BNF.production) ->
+          let id = id_of_nonterminal rule.name in
+          id, gbnf_from_alt_rules rule.rhs) rules
+      |> List.sort (fun (id1, _) (id2, _) -> Int.compare id1 id2)
+      |> List.map snd
+      |> Array.of_list
+    in
+    rules, id_of_nonterminal root
 end
 
 module Timings =
@@ -566,6 +670,10 @@ let grammar_init (rules : Grammar_element.t array array) ~start_rule_index =
   in
   Gc.finalise Stubs.grammar_free result ;
   result
+
+let grammar_from_bnf (bnf : BNF.t) =
+  let g, id = Grammar_element.gbnf_from_grammar bnf in
+  grammar_init g ~start_rule_index:id
 
 let grammar_copy grammar =
   let grammar = Stubs.grammar_copy grammar in

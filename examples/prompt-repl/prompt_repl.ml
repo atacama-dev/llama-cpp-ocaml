@@ -35,10 +35,11 @@ module Interpreter = struct
       n_past : int ;
       embd : token list;
       last_tokens : token list ;
-      last_logits : Llama_cpp.logits option
+      last_logits : Llama_cpp.logits option ;
+      grammar : Llama_cpp.grammar option
     }
 
-  let make_state ?(n_keep = 32) ?(n_batch = 32) ?(n_threads = 8) ?(n_max_samples = 512) ctx =
+  let make_state ?(n_keep = 32) ?(n_batch = 32) ?(n_threads = 8) ?(n_max_samples = 512) ?grammar ctx =
     {
       n = 1 ;
       ctx ;
@@ -49,7 +50,8 @@ module Interpreter = struct
       n_past = 0 ;
       embd = [] ;
       last_tokens = [];
-      last_logits = None
+      last_logits = None ;
+      grammar
     }
 
   (* Tokenize prompt *)
@@ -66,6 +68,16 @@ module Interpreter = struct
       )
     | Ok written ->
       Token_buffer.sub tokens_buff 0 written
+
+  let grammar =
+    let open Llama_cpp.BNF in
+    make ~root:"root"
+      [
+        production ~name:"root" [
+          [c (Uchar.of_char 't'); c (Uchar.of_char 'e'); c (Uchar.of_char 's'); nt "root"] ;
+        ]
+      ]
+
 
   (*
      Context swapping is used when the context is too small to fit the next sequence of tokens.
@@ -188,7 +200,11 @@ module Interpreter = struct
     let rec loop state () =
       let last_tokens = Token_buffer.of_list (List.rev state.last_tokens) in
       Llama_cpp.sample_repetition_penalty ctx ~candidates ~last_tokens ~penalty:1.1 ;
+      Option.iter (fun grammar -> Llama_cpp.sample_grammar ctx ~candidates grammar) state.grammar ;
       let new_token_id = Llama_cpp.sample_token_greedy ctx ~candidates in
+      Option.iter (fun grammar ->
+          Llama_cpp.grammar_accept_token ctx grammar new_token_id
+        ) state.grammar ;
       let embd = new_token_id :: state.embd in
       let last_tokens = new_token_id :: state.last_tokens in
       let state = { state with last_tokens; embd } in
@@ -310,6 +326,7 @@ let main model =
   let* () = LTerm_inputrc.load () in
   Lwt.catch (fun () ->
       Llama_cpp.log_set (fun _log_level _msg -> ()) ;
+      let grammar = Llama_cpp.grammar_from_bnf Interpreter.grammar in
       let ctx_params = Llama_cpp.Context_params.default () in
       let model =
         match Llama_cpp.load_model_from_file model ctx_params with
@@ -319,7 +336,7 @@ let main model =
         | Some model -> model
       in
       let ctx = Llama_cpp.new_context_with_model model ctx_params in
-      let state = Interpreter.make_state ctx in
+      let state = Interpreter.make_state ~grammar ctx in
       let* term = Lazy.force LTerm.stdout in
       let* () = print_info term in
       loop ~add_bos:true term (LTerm_history.create []) state)

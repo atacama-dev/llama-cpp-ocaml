@@ -160,8 +160,63 @@ module Token_data_array : sig
   val write_logits : t -> logits -> unit
 end
 
+(** The [BNF] module allows to describe BNF grammars. The function {!grammar_from_bnf} allows to map this high-level definition to
+    a description usable by [llama.cpp]. Using {!sample_grammar} and {!grammar_accept_token}, one can restrict the output of an LLM
+    to the specified grammar. *)
+module BNF : sig
+  (** [t] is the type of BNF grammars *)
+  type t
+
+  (** [production] is the type of BNF rules. *)
+  type production
+
+  (** [elt] is the type of grammar elements appearing in productions. *)
+  type elt
+
+  (** [make ~root productions] is a BNF grammar whose initial production is named [root].
+      @raise Invalid_argument if some non-terminals do not correspond to productions.
+  *)
+  val make : root:string -> production list -> t
+
+  (** [production ~name \[alt1; alt2; ...\]] corresponds to a BNF production of the form [ name ::= alt1 | alt2 | ... ] *)
+  val production : name:string -> elt list list -> production
+
+  (** [nt name] is a nonterminal referring to the production [name]. *)
+  val nt : string -> elt
+
+  (** [str s] is a terminal matching exactly the string [s]. *)
+  val str : string -> elt
+
+  (** [c u] is a terminal matching exactly the character [u]. *)
+  val c : Uchar.t -> elt
+
+  (** [notc u] is a terminal matching ant character but [u]. *)
+  val notc : Uchar.t -> elt
+
+  (** [range lo hi] is a terminal matching the inclusive interval \[lo;hi\]
+      @raise Invalid_argument if the interval is empty
+  *)
+  val range : Uchar.t -> Uchar.t -> elt
+
+  (** [range lo hi] is a terminal matching the complement of the inclusive interval \[lo;hi\]
+      @raise Invalid_argument if the interval is empty
+  *)
+  val neg_range : Uchar.t -> Uchar.t -> elt
+
+  (** [set ls] is a terminal matching the set of characters contained in [ls].
+      @raise Invalid_argument if [ls] is empty
+  *)
+  val set : Uchar.t list -> elt
+
+  (** [set ls] is a terminal matching the complement of the set of characters contained in [ls].
+      @raise Invalid_argument if [ls] is empty
+  *)
+  val neg_set : Uchar.t list -> elt
+end
+
 module Grammar_element :
 sig
+  (** [gretype] is the type of low-level grammar elements. We advise using module {!BNF} instead. *)
   type gretype =
   | END (** End of rule definition *)
   | ALT (** Start of alternate definition for rule *)
@@ -177,6 +232,8 @@ sig
     type_ : gretype ;
     value : int (** Unicode code point or rule ID *)
   }
+
+  val pp : Format.formatter -> t -> unit
 end
 
 module Timings :
@@ -200,9 +257,7 @@ type context
 
 type grammar
 
-(** Initialize the llama + ggml backend
-    If numa is true, use NUMA optimizations
-    Call once at the start of the program *)
+(** Initialize the llama + ggml backend. If numa is true, use NUMA optimizations. Call once at the start of the program. *)
 val backend_init : numa:bool -> unit
 
 (** Call once at the end of the program - currently only used for MPI *)
@@ -365,6 +420,8 @@ val token_to_piece_with_model : model -> token -> (string, [`Invalid_token]) res
 val grammar_init : Grammar_element.t array array -> start_rule_index:int -> grammar
 
 val grammar_copy : grammar -> grammar
+
+val grammar_from_bnf : BNF.t -> grammar
 
 (** Sampling functions *)
 

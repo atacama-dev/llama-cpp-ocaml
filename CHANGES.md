@@ -1,4 +1,5 @@
 # 0.0.2
+- new module [BNF] implementing a basic high-level API to define grammars
 - new module [Token_buffer] with conversion functions to Seq, array and iterators.
 - bugfix: `sample_token` was mapped to `sample_token_greedy`
 
