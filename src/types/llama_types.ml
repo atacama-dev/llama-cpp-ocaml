@@ -13,12 +13,12 @@ struct
 
     let vals =
       [
-        (Error, constant "LLAMA_LOG_LEVEL_ERROR" int64_t);
-        (Warn, constant "LLAMA_LOG_LEVEL_WARN" int64_t);
-        (Info, constant "LLAMA_LOG_LEVEL_INFO" int64_t);
+        (Error, constant "GGML_LOG_LEVEL_ERROR" int64_t);
+        (Warn, constant "GGML_LOG_LEVEL_WARN" int64_t);
+        (Info, constant "GGML_LOG_LEVEL_INFO" int64_t);
       ]
 
-    let repr = enum ~typedef:false "llama_log_level" vals
+    let repr = enum ~typedef:false "ggml_log_level" vals
   end
 
   module Progress_callback =
@@ -29,11 +29,68 @@ struct
       = static_funptr (float @-> (ptr void) @-> returning void)
   end
 
+  module Pos =
+  struct
+    type t
+
+    let repr = typedef int32_t "llama_pos"
+  end
+
   module Token =
   struct
     type t
 
     let repr = typedef int32_t "llama_token"
+  end
+
+  module Seq_id =
+  struct
+    type t
+
+    let repr = typedef int32_t "llama_seq_id"
+  end
+
+  module Batch =
+  struct
+    type t
+
+    let repr : t Ctypes.structure typ = structure "llama_batch"
+
+    module Fields =
+      struct
+        let n_tokens = field repr "n_tokens" int32_t
+        let token = field repr "token" (ptr Token.repr)
+        let embd = field repr "embd" (ptr float)
+        let pos = field repr "pos" (ptr Pos.repr)
+        let seq_id = field repr "seq_id" (ptr Seq_id.repr)
+        let logits = field repr "logits" (ptr int8_t)
+        let all_pos_0 = field repr "all_pos_0" Pos.repr
+        let all_pos_1 = field repr "all_pos_1" Pos.repr
+        let all_seq_id = field repr "all_seq_id" Seq_id.repr
+        let () = seal repr
+      end
+  end
+
+  module Model_params =
+  struct
+    type t
+
+    let repr : t Ctypes.structure typ = structure "llama_model_params"
+
+    module Fields =
+    struct
+      let n_gpu_layers = field repr "n_gpu_layers" int32_t
+      let main_gpu = field repr "main_gpu" int32_t
+      let tensor_split = field repr "tensor_split" (ptr float)
+
+      let progress_callback = field repr "progress_callback" Progress_callback.repr
+      let progress_callback_user_data = field repr "progress_callback_user_data" (ptr void)
+
+      let vocab_only = field repr "vocab_only" bool
+      let use_mmap = field repr "use_mmap" bool
+      let use_mlock = field repr "use_mlock" bool
+      let () = seal repr
+    end
   end
 
   module Context_params =
@@ -45,26 +102,17 @@ struct
     module Fields =
     struct
       let seed = field repr "seed" uint32_t
-      let n_ctx = field repr "n_ctx" int32_t
-      let n_batch = field repr "n_batch" int32_t
-      let n_gpu_layers = field repr "n_gpu_layers" int32_t
-      let main_gpu = field repr "main_gpu" int32_t
-
-      let tensor_split = field repr "tensor_split" (ptr float)
+      let n_ctx = field repr "n_ctx" uint32_t
+      let n_batch = field repr "n_batch" uint32_t
+      let n_threads = field repr "n_threads" uint32_t
+      let n_threads_batch = field repr "n_threads_batch" uint32_t
 
       let rope_freq_base = field repr "rope_freq_base" float
       let rope_freq_scale = field repr "rope_freq_scale" float
 
-      let progress_callback = field repr "progress_callback" Progress_callback.repr
-      let progress_callback_user_data = field repr "progress_callback_user_data" (ptr void)
-
-      let low_vram = field repr "low_vram" bool
       let mul_mat_q = field repr "mul_mat_q" bool
       let f16_kv = field repr "f16_kv" bool
       let logits_all = field repr "logits_all" bool
-      let vocab_only = field repr "vocab_only" bool
-      let use_mmap = field repr "use_mmap" bool
-      let use_mlock = field repr "use_mlock" bool
       let embedding = field repr "embedding" bool
       let () = seal repr
     end

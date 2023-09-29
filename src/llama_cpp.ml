@@ -7,7 +7,11 @@ module Stubs = Llama_functions.Make (Llama_generated)
 let funptr_of_function fn f =
   coerce (Foreign.funptr fn) (static_funptr fn) f
 
+type pos = int32
+
 type token = int32
+
+type seq_id = int32
 
 type file_type = Types.File_type.t =
   | ALL_F32
@@ -57,6 +61,8 @@ module Token_buffer = struct
 
   let sub (arr : t) ofs len : t = Array1.sub arr ofs len
 
+  let blit (src : t) (dst : t) = Array1.blit src dst
+
   let iter f (arr : t) =
     for i = 0 to Array1.dim arr - 1 do
       f (Array1.unsafe_get arr i)
@@ -85,10 +91,120 @@ module Token_buffer = struct
   let of_list (ls : int32 list) = Array1.of_array Int32 c_layout (Array.of_list ls)
 end
 
-
 module Log_level =
 struct
   type t = Types.Log_level.t = Error | Warn | Info
+end
+
+module Batch =
+struct
+  type t = (Types.Batch.t, [ `Struct ]) structured
+
+  type view = {
+    n_tokens : int ;
+    token : Token_buffer.t ;
+    embd : embeddings option ;
+    pos : (pos, int32_elt, c_layout) Array1.t ;
+    seq_id : (seq_id, int32_elt, c_layout) Array1.t ;
+    logits : (int, int8_signed_elt, c_layout) Array1.t
+  }
+
+  let n_tokens batch = Int32.to_int (getf batch Types.Batch.Fields.n_tokens)
+
+  let token batch =
+    let n_tokens = n_tokens batch in
+    let token_ptr = getf batch Types.Batch.Fields.token in
+    assert (not (is_null token_ptr)) ;
+    bigarray_of_ptr array1 n_tokens Int32 token_ptr
+
+  let embd batch =
+    let n_tokens = n_tokens batch in
+    let embd_ptr = getf batch Types.Batch.Fields.embd in
+    if is_null embd_ptr then
+      None
+    else
+      Some (bigarray_of_ptr array1 n_tokens Float32 embd_ptr)
+
+  let pos batch =
+    let n_tokens = n_tokens batch in
+    let pos_ptr = getf batch Types.Batch.Fields.pos in
+    assert (not (is_null pos_ptr)) ;
+    bigarray_of_ptr array1 n_tokens Int32 pos_ptr
+
+  let seq_id batch =
+    let n_tokens = n_tokens batch in
+    let seq_id_ptr = getf batch Types.Batch.Fields.seq_id in
+    assert (not (is_null seq_id_ptr)) ;
+    bigarray_of_ptr array1 n_tokens Int32 seq_id_ptr
+
+  let logits batch =
+    let n_tokens = n_tokens batch in
+    let logits_ptr = getf batch Types.Batch.Fields.logits in
+    assert (not (is_null logits_ptr)) ;
+    bigarray_of_ptr array1 n_tokens Int8_signed logits_ptr
+
+  let view batch = {
+    n_tokens = n_tokens batch ;
+    token = token batch ;
+    embd = embd batch ;
+    pos = pos batch ;
+    seq_id = seq_id batch ;
+    logits = logits batch
+  }
+
+  let set_n_tokens batch n_tokens =
+    setf batch Types.Batch.Fields.n_tokens (Int32.of_int n_tokens)
+end
+
+module Model_params =
+struct
+  type t = (Types.Model_params.t, [ `Struct ]) structured
+
+  let make_internal ~n_gpu_layers ~main_gpu ~tensor_split ~progress_callback ~progress_callback_user_data ~vocab_only ~use_mmap ~use_mlock =
+    let open Types.Model_params in
+    let result = make repr in
+    setf result Fields.n_gpu_layers (Int32.of_int n_gpu_layers) ;
+    setf result Fields.main_gpu (Int32.of_int main_gpu) ;
+    setf result Fields.tensor_split tensor_split ;
+
+    setf result Fields.progress_callback progress_callback ;
+    setf result Fields.progress_callback_user_data progress_callback_user_data ;
+
+    setf result Fields.vocab_only vocab_only ;
+    setf result Fields.use_mmap use_mmap ;
+    setf result Fields.use_mlock use_mlock ;
+    result
+
+  let make ~n_gpu_layers ~main_gpu ~tensor_split ~progress_callback ~vocab_only ~use_mmap ~use_mlock =
+    if Array.length tensor_split <> Types.max_devices then
+      Format.kasprintf invalid_arg "Context_paramns.make: tensor_split length <> %d" Types.max_devices ;
+    let tensor_split = Array1.of_array Float32 c_layout tensor_split in
+    let tensor_split = Ctypes.bigarray_start Ctypes.array1 tensor_split in
+    let progress_callback =
+      (funptr_of_function (float @-> (ptr void) @-> returning void) (fun flt _ -> progress_callback flt))
+    in
+    let progress_callback_user_data = Ctypes.null in
+    make_internal
+      ~n_gpu_layers ~main_gpu ~tensor_split ~progress_callback ~progress_callback_user_data ~vocab_only ~use_mmap ~use_mlock
+
+
+  let default = Stubs.model_default_params
+
+  let n_gpu_layers cp = getf cp Types.Model_params.Fields.n_gpu_layers |> Int32.to_int
+
+  let main_gpu cp = getf cp Types.Model_params.Fields.main_gpu |> Int32.to_int
+
+  let tensor_split cp =
+    let ptr = getf cp Types.Model_params.Fields.tensor_split in
+    assert (not (is_null ptr)) ;
+    let arr = bigarray_of_ptr Ctypes.array1 Types.max_devices Float32 ptr in
+    Array.init Types.max_devices (fun i -> arr.{i})
+
+  let vocab_only cp = getf cp Types.Model_params.Fields.vocab_only
+
+  let use_mmap cp = getf cp  Types.Model_params.Fields.use_mmap
+
+  let use_mlock cp = getf cp  Types.Model_params.Fields.use_mlock
 end
 
 module Context_params =
@@ -97,104 +213,56 @@ struct
   type t = (Types.Context_params.t, [ `Struct ]) structured
 
   let make_internal
-      ~seed ~n_ctx ~n_batch ~n_gpu_layers ~main_gpu
-      ~tensor_split ~rope_freq_base ~rope_freq_scale
-      ~progress_callback ~progress_callback_user_data
-      ~low_vram ~mul_mat_q ~f16_kv ~logits_all ~vocab_only ~use_mmap ~use_mlock ~embedding =
+      ~seed ~n_ctx ~n_batch ~n_threads ~n_threads_batch ~rope_freq_base ~rope_freq_scale
+      ~mul_mat_q ~f16_kv ~logits_all ~embedding =
     let open Types.Context_params in
     let result = make repr in
     setf result Fields.seed seed ;
     setf result Fields.n_ctx n_ctx ;
     setf result Fields.n_batch n_batch ;
-    setf result Fields.n_gpu_layers n_gpu_layers ;
-    setf result Fields.main_gpu main_gpu ;
-
-    setf result Fields.tensor_split tensor_split ;
+    setf result Fields.n_threads n_threads ;
+    setf result Fields.n_threads_batch n_threads_batch ;
 
     setf result Fields.rope_freq_base rope_freq_base ;
     setf result Fields.rope_freq_scale rope_freq_scale ;
 
-    setf result Fields.progress_callback progress_callback ;
-    setf result Fields.progress_callback_user_data progress_callback_user_data ;
-
-    setf result Fields.low_vram low_vram ;
     setf result Fields.mul_mat_q mul_mat_q ;
     setf result Fields.f16_kv f16_kv ;
     setf result Fields.logits_all logits_all ;
-    setf result Fields.vocab_only vocab_only ;
-    setf result Fields.use_mmap use_mmap ;
-    setf result Fields.use_mlock use_mlock ;
     setf result Fields.embedding embedding ;
     result
 
   let make
-      ~seed
-      ~n_ctx
-      ~n_batch
-      ~n_gpu_layers
-      ~main_gpu
-      ~tensor_split
-      ~rope_freq_base
-      ~rope_freq_scale
-      ~(progress_callback:(float -> unit))
-      ~low_vram
-      ~mul_mat_q
-      ~f16_kv
-      ~logits_all
-      ~vocab_only
-      ~use_mmap
-      ~use_mlock
-      ~embedding
-    : t =
-    if Array.length tensor_split <> Types.max_devices then
-      Format.kasprintf invalid_arg "Context_paramns.make: tensor_split length <> %d" Types.max_devices ;
-    let tensor_split = Array1.of_array Float32 c_layout tensor_split in
-    let tensor_split = Ctypes.bigarray_start Ctypes.array1 tensor_split in
-    let progress_callback =
-      (funptr_of_function (float @-> (ptr void) @-> returning void) (fun flt _ -> progress_callback flt))
-    in
+      ~seed ~n_ctx ~n_batch ~n_threads ~n_threads_batch ~rope_freq_base ~rope_freq_scale
+      ~mul_mat_q ~f16_kv ~logits_all ~embedding : t =
     make_internal
       ~seed:(Unsigned.UInt32.of_int seed)
-      ~n_ctx
-      ~n_batch
-      ~n_gpu_layers
-      ~main_gpu
-      ~tensor_split
+      ~n_ctx:(Unsigned.UInt32.of_int n_ctx)
+      ~n_batch:(Unsigned.UInt32.of_int n_batch)
+      ~n_threads:(Unsigned.UInt32.of_int n_threads)
+      ~n_threads_batch:(Unsigned.UInt32.of_int n_threads_batch)
       ~rope_freq_base
       ~rope_freq_scale
-      ~progress_callback
-      ~progress_callback_user_data:Ctypes.null
-      ~low_vram
       ~mul_mat_q
       ~f16_kv
       ~logits_all
-      ~vocab_only
-      ~use_mmap
-      ~use_mlock
       ~embedding
 
   let default = Stubs.context_default_params
 
   let seed cp = getf cp Types.Context_params.Fields.seed |> Unsigned.UInt32.to_int
 
-  let n_ctx cp = getf cp Types.Context_params.Fields.n_ctx
+  let n_ctx cp = getf cp Types.Context_params.Fields.n_ctx |> Unsigned.UInt32.to_int
 
-  let n_batch cp = getf cp Types.Context_params.Fields.n_batch
+  let n_batch cp = getf cp Types.Context_params.Fields.n_batch |> Unsigned.UInt32.to_int
 
-  let n_gpu_layers cp = getf cp Types.Context_params.Fields.n_gpu_layers
+  let n_threads cp = getf cp Types.Context_params.Fields.n_threads |> Unsigned.UInt32.to_int
 
-  let main_gpu cp = getf cp Types.Context_params.Fields.main_gpu
-
-  let tensor_split cp =
-    let ptr = getf cp Types.Context_params.Fields.tensor_split in
-    let arr = bigarray_of_ptr Ctypes.array1 Types.max_devices Float32 ptr in
-    Array.init Types.max_devices (fun i -> arr.{i})
+  let n_threads_batch cp = getf cp Types.Context_params.Fields.n_threads_batch |> Unsigned.UInt32.to_int
 
   let rope_freq_base cp = getf cp Types.Context_params.Fields.rope_freq_base
 
   let rope_freq_scale cp = getf cp Types.Context_params.Fields.rope_freq_scale
-
-  let low_vram cp = getf cp Types.Context_params.Fields.low_vram
 
   let mul_mat_q cp = getf cp Types.Context_params.Fields.mul_mat_q
 
@@ -202,13 +270,23 @@ struct
 
   let logits_all cp = getf cp Types.Context_params.Fields.logits_all
 
-  let vocab_only cp = getf cp Types.Context_params.Fields.vocab_only
-
-  let use_mmap cp = getf cp  Types.Context_params.Fields.use_mmap
-
-  let use_mlock cp = getf cp  Types.Context_params.Fields.use_mlock
-
   let embedding cp = getf cp  Types.Context_params.Fields.embedding
+
+  let set_seed context seed =
+    let open Types.Context_params in
+    setf context Fields.seed (Unsigned.UInt32.of_int seed)
+
+  let set_n_ctx context n_ctx =
+    let open Types.Context_params in
+    setf context Fields.n_ctx (Unsigned.UInt32.of_int n_ctx)
+
+  let set_n_threads context n_threads =
+    let open Types.Context_params in
+    setf context Fields.n_threads (Unsigned.UInt32.of_int n_threads)
+
+  let set_n_threads_batch context n_threads_batch =
+    let open Types.Context_params in
+    setf context Fields.n_threads_batch (Unsigned.UInt32.of_int n_threads_batch)
 end
 
 module Model_quantize_params =
@@ -457,6 +535,10 @@ let mmap_supported = Stubs.mmap_supported
 
 let mlock_supported = Stubs.mlock_supported
 
+let get_model = Stubs.get_model
+
+let vocab_type = Stubs.vocab_type
+
 let n_vocab = Stubs.n_vocab
 
 let n_ctx = Stubs.n_ctx
@@ -464,16 +546,6 @@ let n_ctx = Stubs.n_ctx
 let n_ctx_train = Stubs.n_ctx_train
 
 let n_embd = Stubs.n_embd
-
-let vocab_type = Stubs.vocab_type
-
-let model_n_vocab = Stubs.model_n_vocab
-
-let model_n_ctx = Stubs.model_n_ctx
-
-let model_n_ctx_train = Stubs.model_n_ctx_train
-
-let model_n_embd = Stubs.model_n_embd
 
 let model_desc model =
   let wants_to_write = Stubs.model_desc model Ctypes.(from_voidp char null) Unsigned.Size_t.zero in
@@ -495,13 +567,24 @@ let model_quantize ~fname_inp ~fname_out params =
   let retcode = Stubs.model_quantize fname_inp fname_out params in
   retcode = 0
 
-let model_apply_lora_from_file model ~path_lora ~path_base_model ~n_threads =
+let model_apply_lora_from_file model ~path_lora ~scale ~path_base_model ~n_threads =
   let path_lora = CArray.of_string path_lora |> CArray.start in
   let path_base_model = CArray.of_string path_base_model |> CArray.start in
-  let retcode = Stubs.model_apply_lora_from_file model path_lora path_base_model n_threads in
+  let retcode = Stubs.model_apply_lora_from_file model path_lora scale path_base_model n_threads in
   retcode = 0
 
-let get_kv_cache_token_count = Stubs.get_kv_cache_token_count
+let kv_cache_tokens_rm context ~c0 ~c1 = Stubs.kv_cache_tokens_rm context c0 c1
+
+let kv_cache_seq_rm context seq_id ~p0 ~p1 = Stubs.kv_cache_seq_rm context seq_id p0 p1
+
+let kv_cache_seq_cp context ~src ~dst ~p0 ~p1 = Stubs.kv_cache_seq_cp context src dst p0 p1
+
+let kv_cache_seq_keep = Stubs.kv_cache_seq_keep
+
+let kv_cache_seq_shift context seq_id ~p0 ~p1 ~delta = Stubs.kv_cache_seq_shift context seq_id p0 p1 delta
+
+(* DEPRECATED *)
+(* let get_kv_cache_token_count = Stubs.get_kv_cache_token_count *)
 
 let set_rng_seed context seed = Stubs.set_rng_seed context (Unsigned.UInt32.of_int seed)
 
@@ -525,12 +608,12 @@ let set_state_data context (buff : buff) =
   in
   Stubs.set_state_data context ptr |> Unsigned.Size_t.to_int
 
-let clone context model params =
+let clone context params =
   let size = get_state_size context in
   let buff = Array1.create Char c_layout size in
   let written = copy_state_data context buff in
   assert (written <= size) ;
-  let fresh_context = new_context_with_model model params in
+  let fresh_context = new_context_with_model (get_model context) params in
   let _read = set_state_data fresh_context buff in
   fresh_context
 
@@ -552,39 +635,77 @@ let save_session_file context ~path_session (tokens : Token_buffer.t) =
   let token_buff_len = Array1.dim tokens |> Unsigned.Size_t.of_int in
   Stubs.save_session_file context path_session token_buff_ptr token_buff_len
 
-let eval context (tokens : token_buff) ~n_tokens ~n_past ~n_threads =
+let batch_get_one (tokens : token_buff) ~pos ~seq_id =
   let token_buff_ptr = Ctypes.bigarray_start Ctypes.array1 tokens in
-  let eval_success = Stubs.eval context token_buff_ptr n_tokens n_past n_threads = 0 in
-  if eval_success then
+  let buff_len = Array1.dim tokens in
+  Stubs.batch_get_one token_buff_ptr (Int32.of_int buff_len) pos seq_id
+
+let batch_init ~n_tokens ~embd =
+  Stubs.batch_init (Int32.of_int n_tokens) (Int32.of_int embd)
+
+let batch_free = Stubs.batch_free
+
+let with_batch ~n_tokens ~embd f =
+  let batch = batch_init ~n_tokens ~embd in
+  let res = f batch in
+  batch_free batch ;
+  res
+
+let decode context batch =
+  let eval_success = Stubs.decode context batch in
+  if eval_success = 0 then
     let ptr = Stubs.get_logits context in
-    let n_vocab = n_vocab context in
+    assert (not (is_null ptr)) ;
+    let n_vocab = n_vocab (get_model context) in
+    let n_tokens = Batch.n_tokens batch in
     let ba = Ctypes.bigarray_of_ptr array2 (n_tokens, n_vocab) Float32 ptr in
-    Some ba
+    Ok ba
+  else if eval_success = 1 then
+    Error `no_kv_slot_for_batch
   else
-    None
+    Error `decode_error
 
-let eval_embd context (embd : (float, float32_elt, c_layout) Array1.t) ~n_tokens ~n_past ~n_threads =
-  let ptr = Ctypes.bigarray_start Ctypes.array1 embd in
-  let eval_success = Stubs.eval_embd context ptr n_tokens n_past n_threads = 0 in
-  if eval_success then
-    let ptr = Stubs.get_logits context in
-    let n_vocab = n_vocab context in
-    let ba = Ctypes.bigarray_of_ptr Ctypes.array2 (n_tokens, n_vocab) Float32 ptr in
-    Some ba
-  else
-    None
+let set_n_threads context ~n_threads ~n_threads_batch =
+  Stubs.set_n_threads context (Unsigned.UInt32.of_int n_threads) (Unsigned.UInt32.of_int n_threads_batch)
 
-let eval_export context fname =
-  let fname = CArray.of_string fname |> CArray.start in
-  Stubs.eval_export context fname = 0
+(* DEPRECATED *)
+(* let eval context (tokens : token_buff) ~n_tokens ~n_past ~n_threads = *)
+(*   let token_buff_ptr = Ctypes.bigarray_start Ctypes.array1 tokens in *)
+(*   let eval_success = Stubs.eval context token_buff_ptr n_tokens n_past n_threads = 0 in *)
+(*   if eval_success then *)
+(*     let ptr = Stubs.get_logits context in *)
+(*     let n_vocab = n_vocab context in *)
+(*     let ba = Ctypes.bigarray_of_ptr array2 (n_tokens, n_vocab) Float32 ptr in *)
+(*     Some ba *)
+(*   else *)
+(*     None *)
+
+(* DEPRECATED*)
+(* let eval_embd context (embd : (float, float32_elt, c_layout) Array1.t) ~n_tokens ~n_past ~n_threads = *)
+(*   let ptr = Ctypes.bigarray_start Ctypes.array1 embd in *)
+(*   let eval_success = Stubs.eval_embd context ptr n_tokens n_past n_threads = 0 in *)
+(*   if eval_success then *)
+(*     let ptr = Stubs.get_logits context in *)
+(*     let n_vocab = n_vocab context in *)
+(*     let ba = Ctypes.bigarray_of_ptr Ctypes.array2 (n_tokens, n_vocab) Float32 ptr in *)
+(*     Some ba *)
+(*   else *)
+(*     None *)
+
+(* DEPRECATED *)
+(* let eval_export context fname = *)
+(*   let fname = CArray.of_string fname |> CArray.start in *)
+(*   Stubs.eval_export context fname = 0 *)
 
 let get_embeddings context =
   let ptr = Stubs.get_embeddings context in
-  let n_embd = n_embd context in
+  assert (not (is_null ptr)) ;
+  let n_embd = n_embd (get_model context) in
   Ctypes.bigarray_of_ptr array1 n_embd Float32 ptr
 
 let token_get_text context token =
   let ptr = Stubs.token_get_text context token in
+  assert (not (is_null ptr)) ;
   let length = Stubs.strlen ptr |> Unsigned.Size_t.to_int in
   Ctypes.string_from_ptr ptr ~length
 
@@ -598,50 +719,25 @@ let token_eos = Stubs.token_eos
 
 let token_nl = Stubs.token_nl
 
-let tokenize context ~text tokens ~n_max_tokens ~add_bos =
+(* We could provide a bigarray-buffer API in order to tokenize slices of text *)
+let tokenize model ~text tokens ~n_max_tokens ~add_bos =
   if n_max_tokens <= 0 then
     invalid_arg "tokenize (n_max_tokens <= 0)" ;
   let text = CArray.of_string text |> CArray.start in
+  let text_len = Array1.dim tokens in
   let tokens = Ctypes.bigarray_start Ctypes.array1 tokens in
-  let written = Stubs.tokenize context text tokens n_max_tokens add_bos in
+  let written = Stubs.tokenize model text text_len tokens n_max_tokens add_bos in
   if written < 0 then
     Error (`Too_many_tokens written)
   else
     Ok written
 
-let tokenize_with_model model ~text tokens ~n_max_tokens ~add_bos =
-  if n_max_tokens <= 0 then
-    invalid_arg "tokenize (n_max_tokens <= 0)" ;
-  let text = CArray.of_string text |> CArray.start in
-  let tokens = Ctypes.bigarray_start Ctypes.array1 tokens in
-  let written = Stubs.tokenize_with_model model text tokens n_max_tokens add_bos in
-  if written < 0 then
-    Error (`Too_many_tokens written)
-  else
-    Ok written
-
-let token_to_piece context token =
+let token_to_piece model token =
   let rec loop len =
     let buff = CArray.make char len in
     let ptr = CArray.start buff in
-    let written = Stubs.token_to_piece context token ptr len in
+    let written = Stubs.token_to_piece model token ptr len in
     if written < 0 then
-      (* Buffer too small *)
-      loop (- written)
-    else
-      Ctypes.string_from_ptr ptr ~length:written
-      |> Result.ok
-  in
-  loop 32
-
-let token_to_piece_with_model model token =
-  let rec loop len =
-    let buff = CArray.make char len in
-    let ptr = CArray.start buff in
-    let written = Stubs.token_to_piece_with_model model token ptr len in
-    if written = 0 then
-      Error `Invalid_token
-    else if written < 0 then
       (* Buffer too small *)
       loop (- written)
     else
@@ -707,7 +803,7 @@ let sample_typical context ~candidates ~p ~min_keep =
   Stubs.sample_typical context candidates p (Unsigned.Size_t.of_int min_keep)
 
 let sample_temperature context ~candidates ~temp =
-  Stubs.sample_temperature context candidates temp
+  Stubs.sample_temp context candidates temp
 
 let sample_grammar context ~candidates grammar =
   Stubs.sample_grammar context candidates grammar
@@ -742,7 +838,7 @@ type beam_search_callback =
   last_call:bool ->
   unit
 
-let beam_search context callback ~n_beams ~n_past ~n_predict ~n_threads =
+let beam_search context callback ~n_beams ~n_past ~n_predict =
   let callback : (unit Ctypes_static.ptr -> Types.Beams_state.t structure -> unit) =
     fun _null beams_state ->
       let open Types.Beams_state in
@@ -760,6 +856,7 @@ let beam_search context callback ~n_beams ~n_past ~n_predict ~n_threads =
         |> List.map (fun view ->
             let open Types.Beam_view in
             let tokens = getf view Fields.tokens in
+            assert (not (is_null tokens)) ;
             let n_token =
               getf view Fields.n_token
               |> Unsigned.Size_t.to_int in
@@ -775,7 +872,7 @@ let beam_search context callback ~n_beams ~n_past ~n_predict ~n_threads =
         ~common_prefix_length
         ~last_call
   in
-  Stubs.beam_search context callback Ctypes.null (Unsigned.Size_t.of_int n_beams) n_past n_predict n_threads
+  Stubs.beam_search context callback Ctypes.null (Unsigned.Size_t.of_int n_beams) n_past n_predict
 
 let get_timings context =
   let timings = Stubs.get_timings context in

@@ -4,6 +4,9 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   open Ctypes
   open T
 
+  let model_default_params =
+    foreign "llama_model_default_params" (void @-> returning Model_params.repr)
+
   let context_default_params =
     foreign "llama_context_default_params" (void @-> returning Context_params.repr)
 
@@ -17,7 +20,7 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
     foreign "llama_backend_free" (void @-> returning void)
 
   let load_model_from_file =
-    foreign "llama_load_model_from_file" (string @-> Context_params.repr @-> returning (ptr Model.repr))
+    foreign "llama_load_model_from_file" (string @-> Model_params.repr @-> returning (ptr Model.repr))
 
   let free_model =
     foreign "llama_free_model" (ptr Model.repr @-> returning void)
@@ -40,32 +43,23 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   let mlock_supported =
     foreign "llama_mlock_supported" (void @-> returning bool)
 
-  let n_vocab =
-    foreign "llama_n_vocab" (ptr Context.repr @-> returning int)
+  let get_model =
+    foreign "llama_get_model" (ptr Context.repr @-> returning (ptr (Model.repr)))
 
   let n_ctx =
     foreign "llama_n_ctx" (ptr Context.repr @-> returning int)
 
-  let n_ctx_train =
-    foreign "llama_n_ctx_train" (ptr Context.repr @-> returning int)
-
   let n_embd =
-    foreign "llama_n_embd" (ptr Context.repr @-> returning int)
+    foreign "llama_n_embd" (ptr Model.repr @-> returning int)
 
   let vocab_type =
-    foreign "llama_vocab_type" (ptr Context.repr @-> returning Vocab_type.repr)
+    foreign "llama_vocab_type" (ptr Model.repr @-> returning Vocab_type.repr)
 
-  let model_n_vocab =
-    foreign "llama_model_n_vocab" (ptr Model.repr @-> returning int)
+  let n_vocab =
+    foreign "llama_n_vocab" (ptr Model.repr @-> returning int)
 
-  let model_n_ctx =
-    foreign "llama_model_n_ctx" (ptr Model.repr @-> returning int)
-
-  let model_n_ctx_train =
-    foreign "llama_model_n_ctx_train" (ptr Model.repr @-> returning int)
-
-  let model_n_embd =
-    foreign "llama_model_n_embd" (ptr Model.repr @-> returning int)
+  let n_ctx_train =
+    foreign "llama_n_ctx_train" (ptr Model.repr @-> returning int)
 
   (* Get a string describing the model type *)
   let model_desc =
@@ -79,6 +73,10 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   let model_n_params =
     foreign "llama_model_n_params" (ptr Model.repr @-> returning uint64_t)
 
+  (* TODO:
+      LLAMA_API struct ggml_tensor * llama_get_model_tensor(struct llama_model * model, const char * name);
+  *)
+
   (* Returns 0 on success *)
   let model_quantize =
     foreign "llama_model_quantize" (ptr char @-> ptr char @-> ptr Model_quantize_params.repr @-> returning int)
@@ -90,15 +88,29 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   (* will be applied on top of the previous one *)
   (* Returns 0 on success *)
   let model_apply_lora_from_file =
-    foreign "llama_model_apply_lora_from_file" (ptr Model.repr @-> ptr char @-> ptr char @-> int @-> returning int)
+    foreign "llama_model_apply_lora_from_file" (ptr Model.repr @-> ptr char @-> float @-> ptr char @-> int @-> returning int)
 
   (* Returns the number of tokens in the KV cache *)
-  let get_kv_cache_token_count =
-    foreign "llama_get_kv_cache_token_count" (ptr Context.repr @-> returning int)
+  (* DEPRECATED *)
+  (* let get_kv_cache_token_count = *)
+  (*   foreign "llama_get_kv_cache_token_count" (ptr Context.repr @-> returning int) *)
 
-  (* Sets the current rng seed. *)
-  let set_rng_seed =
-    foreign "llama_set_rng_seed" (ptr Context.repr @-> uint32_t @-> returning void)
+  let kv_cache_tokens_rm =
+    foreign "llama_kv_cache_tokens_rm" (ptr Context.repr @-> int32_t @-> int32_t @-> returning void)
+
+  let kv_cache_seq_rm =
+    foreign "llama_kv_cache_seq_rm" (ptr Context.repr @-> Seq_id.repr @-> int32_t @-> int32_t @-> returning void)
+
+  let kv_cache_seq_cp =
+    foreign "llama_kv_cache_seq_cp"
+      (ptr Context.repr @-> Seq_id.repr @-> Seq_id.repr @-> int32_t @-> int32_t @-> returning void)
+
+  let kv_cache_seq_keep =
+    foreign "llama_kv_cache_seq_keep" (ptr Context.repr @-> Seq_id.repr @-> returning void)
+
+  let kv_cache_seq_shift =
+    foreign "llama_kv_cache_seq_shift"
+      (ptr Context.repr @-> Seq_id.repr @-> Pos.repr @-> Pos.repr @-> Pos.repr @-> returning void)
 
   (* Returns the maximum size in bytes of the state (rng, logits, embedding *)
   (* and kv_cache) - will often be smaller after compacting tokens *)
@@ -126,21 +138,40 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   (* tokens + n_tokens is the provided batch of new tokens to process *)
   (* n_past is the number of tokens to use from previous eval calls *)
   (* Returns 0 on success *)
-  let eval =
-    foreign "llama_eval"
-      (ptr Context.repr @-> ptr Token.repr @-> int @-> int @-> int @-> returning int)
+  (* DEPRECATED *)
+  (* let eval = *)
+  (*   foreign "llama_eval" *)
+  (*     (ptr Context.repr @-> ptr Token.repr @-> int @-> int @-> int @-> returning int) *)
 
   (* Same as llama_eval, but use float matrix input directly. *)
-  let eval_embd =
-    foreign "llama_eval_embd"
-      (ptr Context.repr @-> ptr float @-> int @-> int @-> int @-> returning int)
+  (* DEPRECATED *)
+  (* let eval_embd = *)
+  (*   foreign "llama_eval_embd" *)
+  (*     (ptr Context.repr @-> ptr float @-> int @-> int @-> int @-> returning int) *)
 
   (* Export a static computation graph for context of 511 and batch size of 1 *)
   (* NOTE: since this functionality is mostly for debugging and demonstration purposes, we hardcode these *)
   (*       parameters here to keep things simple *)
   (* IMPORTANT: do not use for anything else other than debugging and testing! *)
-  let eval_export =
-    foreign "llama_eval_export" (ptr Context.repr @-> ptr char @-> returning int)
+  (* DEPRECATED *)
+  (* let eval_export = *)
+  (*   foreign "llama_eval_export" (ptr Context.repr @-> ptr char @-> returning int) *)
+
+  let batch_get_one =
+    foreign "llama_batch_get_one" (ptr Token.repr @-> int32_t @-> Pos.repr @-> Seq_id.repr @-> returning Batch.repr)
+
+  let batch_init =
+    foreign "llama_batch_init" (int32_t @-> int32_t @-> returning Batch.repr)
+
+  let batch_free =
+    foreign "llama_batch_free" (Batch.repr @-> returning void)
+
+  let decode =
+    foreign "llama_decode" (ptr Context.repr @-> Batch.repr @-> returning int)
+
+  let set_n_threads =
+    foreign "llama_set_n_threads" (ptr Context.repr @-> uint32_t @-> uint32_t @-> returning void)
+
 
   (* Token logits obtained from the last call to llama_eval() *)
   (* The logits for the last token are stored in the last row *)
@@ -185,20 +216,14 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   (* Returns the number of tokens on success, no more than n_max_tokens *)
   (* Returns a negative number on failure - the number of tokens that would have been returned *)
   let tokenize =
-    foreign "llama_tokenize" (ptr Context.repr @-> ptr char @-> ptr Token.repr @-> int @-> bool @-> returning int)
-
-  let tokenize_with_model =
-    foreign "llama_tokenize_with_model" (ptr Model.repr @-> ptr char @-> ptr Token.repr @-> int @-> bool @-> returning int)
+    foreign "llama_tokenize" (ptr Model.repr @-> ptr char @-> int @-> ptr Token.repr @-> int @-> bool @-> returning int)
 
   (* Token Id -> Piece. *)
   (* Uses the vocabulary in the provided context. *)
   (* Does not write null terminator to the buffer. *)
   (* User code is responsible to remove the leading whitespace of the first non-BOS token when decoding multiple tokens. *)
   let token_to_piece =
-    foreign "llama_token_to_piece" (ptr Context.repr @-> Token.repr @-> ptr char @-> int @-> returning int)
-
-  let token_to_piece_with_model =
-    foreign "llama_token_to_piece_with_model" (ptr Model.repr @-> Token.repr @-> ptr char @-> int @-> returning int)
+    foreign "llama_token_to_piece" (ptr Model.repr @-> Token.repr @-> ptr char @-> int @-> returning int)
 
   (* Grammar *)
 
@@ -213,6 +238,10 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
     foreign "llama_grammar_copy" (ptr Grammar.repr @-> returning (ptr Grammar.repr))
 
   (* Sampling functions *)
+
+  (* Sets the current rng seed. *)
+  let set_rng_seed =
+    foreign "llama_set_rng_seed" (ptr Context.repr @-> uint32_t @-> returning void)
 
   (* Repetition penalty described in CTRL academic paper https://arxiv.org/abs/1909.05858, with negative logit fix. *)
   let sample_repetition_penalty =
@@ -256,8 +285,12 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   let sample_typical =
     foreign "llama_sample_typical" (ptr Context.repr @-> ptr Token_data_array.repr @-> float @-> size_t @-> returning void)
 
-  let sample_temperature =
-    foreign "llama_sample_temperature" (ptr Context.repr @-> ptr Token_data_array.repr @-> float @-> returning void)
+  let sample_temp =
+    foreign "llama_sample_temp" (ptr Context.repr @-> ptr Token_data_array.repr @-> float @-> returning void)
+
+  (* DEPRECATED *)
+  (* let sample_temperature = *)
+  (*   foreign "llama_sample_temperature" (ptr Context.repr @-> ptr Token_data_array.repr @-> float @-> returning void) *)
 
   (* Apply constraints from grammar *)
   let sample_grammar =
@@ -301,10 +334,9 @@ module Make = functor (T : Ctypes.FOREIGN) -> struct
   (* @param n_beams Number of beams to use. *)
   (* @param n_past Number of tokens already evaluated. *)
   (* @param n_predict Maximum number of tokens to predict. EOS may occur earlier. *)
-  (* @param n_threads Number of threads as passed to llama_eval(). *)
   let beam_search =
     foreign "llama_beam_search"
-      (ptr Context.repr @-> (Foreign.funptr Ctypes.(ptr void @-> Beams_state.repr @-> returning void)) @-> ptr void @-> size_t @-> int @-> int @-> int @-> returning void)
+      (ptr Context.repr @-> (Foreign.funptr Ctypes.(ptr void @-> Beams_state.repr @-> returning void)) @-> ptr void @-> size_t @-> int @-> int @-> returning void)
 
 
   let get_timings =

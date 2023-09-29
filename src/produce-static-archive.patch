@@ -1,26 +1,25 @@
-From e97f490b4363c80961a1893f80633f706b9cb2be Mon Sep 17 00:00:00 2001
+From 75785d11eaa929f2196fa9862e244ec4a817fdea Mon Sep 17 00:00:00 2001
 From: Ilias Garnier <igarnier@protonmail.com>
-Date: Tue, 12 Sep 2023 23:06:06 +0200
-Subject: [PATCH] Produce static archive
+Date: Sat, 30 Sep 2023 07:07:55 +0200
+Subject: [PATCH] patching Makefile
 
 ---
  Makefile | 3 +++
  1 file changed, 3 insertions(+)
 
 diff --git a/Makefile b/Makefile
-index a774dc5..b45d2c0 100644
+index 08b83ca..59b90f1 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -488,6 +488,9 @@ grammar-parser.o: common/grammar-parser.cpp common/grammar-parser.h
+@@ -530,6 +530,9 @@ train.o: common/train.cpp common/train.h
  libllama.so: llama.o ggml.o $(OBJS)
  	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $^ $(LDFLAGS)
- 
+
 +libllama.a: llama.o ggml.o $(OBJS)
 +	ar -rc $@ $^
 +
  clean:
  	rm -vrf *.o tests/*.o *.so *.dll benchmark-matmult build-info.h *.dot $(COV_TARGETS) $(BUILD_TARGETS) $(TEST_TARGETS)
- 
--- 
-2.34.1
 
+--
+2.34.1
