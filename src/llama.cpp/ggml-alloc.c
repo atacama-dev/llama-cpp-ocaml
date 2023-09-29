@@ -77,7 +77,7 @@ struct free_block {
     size_t size;
 };
 
-#define MAX_FREE_BLOCKS 128
+#define MAX_FREE_BLOCKS 256
 
 struct ggml_allocr {
     void * data;
@@ -129,6 +129,10 @@ static size_t ggml_allocr_get_alloc_size(struct ggml_allocr * alloc, struct ggml
 static bool ggml_allocr_is_own(struct ggml_allocr * alloc, const struct ggml_tensor * tensor) {
     void * ptr = tensor->data;
     return ptr >= alloc->data && (char *)ptr < (char *)alloc->data + alloc->max_size;
+}
+
+static bool ggml_is_view(struct ggml_tensor * t) {
+    return t->view_src != NULL;
 }
 
 void ggml_allocr_alloc(struct ggml_allocr * alloc, struct ggml_tensor * tensor) {
@@ -183,6 +187,7 @@ void ggml_allocr_alloc(struct ggml_allocr * alloc, struct ggml_tensor * tensor) 
     }
 
     tensor->data = addr;
+    AT_PRINTF("%s: allocated data at %p\n", __func__, tensor->data);
 
 #ifdef GGML_ALLOCATOR_DEBUG
     add_allocated_tensor(alloc, tensor);
@@ -214,7 +219,8 @@ static void ggml_allocr_free_tensor(struct ggml_allocr * alloc, struct ggml_tens
 
     size_t size = ggml_allocr_get_alloc_size(alloc, tensor);
     size = aligned_offset(NULL, size, alloc->alignment);
-    AT_PRINTF("%s: freeing %s (%zu bytes) - n_free_blocks = %d\n", __func__, tensor->name, size, alloc->n_free_blocks);
+    AT_PRINTF("%s: freeing %s at %p (%zu bytes) - n_free_blocks = %d\n", __func__, tensor->name, ptr, size, alloc->n_free_blocks);
+    AT_PRINTF("%s: alloc->data = %p alloc->data+alloc->size = %p alloc->data+alloc->max_size = %p\n", __func__, alloc->data, (char*)alloc->data + alloc->size, (char*)alloc->data + alloc->max_size);
 
 #ifdef GGML_ALLOCATOR_DEBUG
     remove_allocated_tensor(alloc, tensor);
@@ -338,8 +344,8 @@ static void free_vmem(void * base_addr, size_t size) {
 
 // allocate uncommitted virtual memory to measure the size of the graph
 static void alloc_measure_vmem(void ** base_addr, size_t * size) {
-    // 1TB for 64-bit, 1GB for 32-bit
-    *size = sizeof(void *) == 4 ? 1ULL<<30 : 1ULL<<40;
+    // 128GB for 64-bit, 1GB for 32-bit
+    *size = sizeof(void *) == 4 ? 1ULL<<30 : 1ULL<<37;
     do {
         *base_addr = alloc_vmem(*size);
         if (*base_addr != NULL) {
@@ -398,10 +404,6 @@ bool ggml_allocr_is_measure(struct ggml_allocr * alloc) {
 }
 
 //////////// compute graph allocator
-
-static bool ggml_is_view(struct ggml_tensor * t) {
-    return t->view_src != NULL;
-}
 
 static bool ggml_are_same_layout(const struct ggml_tensor * a, const struct ggml_tensor * b) {
     if (a->type != b->type) {
@@ -630,4 +632,8 @@ static size_t ggml_allocr_alloc_graph_tensors_n(
 
 size_t ggml_allocr_alloc_graph(struct ggml_allocr * alloc, struct ggml_cgraph * graph) {
     return ggml_allocr_alloc_graph_tensors_n(alloc, &graph, 1, NULL, NULL);
+}
+
+size_t ggml_allocr_max_size(struct ggml_allocr * alloc) {
+    return alloc->max_size;
 }

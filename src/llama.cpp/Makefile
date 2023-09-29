@@ -1,8 +1,8 @@
 # Define the default target now so that it is always the first target
-BUILD_TARGETS = main quantize quantize-stats perplexity embedding vdot train-text-from-scratch convert-llama2c-to-ggml simple save-load-state server embd-input-test gguf llama-bench baby-llama beam-search speculative tests/test-c.o
+BUILD_TARGETS = main quantize quantize-stats perplexity embedding vdot q8dot train-text-from-scratch convert-llama2c-to-ggml simple batched save-load-state server embd-input-test gguf llama-bench baby-llama beam-search speculative benchmark-matmult parallel finetune export-lora tests/test-c.o
 
 # Binaries only useful for tests
-TEST_TARGETS = tests/test-llama-grammar tests/test-grammar-parser tests/test-double-float tests/test-grad0 tests/test-opt tests/test-quantize-fns tests/test-quantize-perf tests/test-sampling tests/test-tokenizer-0-llama tests/test-tokenizer-0-falcon tests/test-tokenizer-1
+TEST_TARGETS = tests/test-llama-grammar tests/test-grammar-parser tests/test-double-float tests/test-grad0 tests/test-opt tests/test-quantize-fns tests/test-quantize-perf tests/test-sampling tests/test-tokenizer-0-llama tests/test-tokenizer-0-falcon tests/test-tokenizer-1-llama
 
 # Code coverage output files
 COV_TARGETS = *.gcno tests/*.gcno *.gcda tests/*.gcda *.gcov tests/*.gcov lcov-report gcovr-report
@@ -17,6 +17,20 @@ endif
 
 ifndef UNAME_M
 UNAME_M := $(shell uname -m)
+endif
+
+ifeq '' '$(findstring clang,$(shell $(CC) --version))'
+	CC_IS_GCC=1
+	CC_VER := $(shell $(CC) -dumpfullversion -dumpversion | awk -F. '{ printf("%02d%02d%02d", $$1, $$2, $$3) }')
+else
+	CC_IS_CLANG=1
+	ifeq '' '$(findstring Apple LLVM,$(shell $(CC) --version))'
+		CC_IS_LLVM_CLANG=1
+	else
+		CC_IS_APPLE_CLANG=1
+	endif
+	CC_VER := $(shell $(CC) --version | sed -n 's/^.* version \([0-9.]*\).*$$/\1/p' \
+				| awk -F. '{ printf("%02d%02d%02d", $$1, $$2, $$3) }')
 endif
 
 # Mac OS + Arm can report x86_64
@@ -49,7 +63,7 @@ test: $(TEST_TARGETS)
 			./$$test_target $(CURDIR)/models/ggml-vocab-llama.gguf; \
 		elif [ "$$test_target" = "tests/test-tokenizer-0-falcon" ]; then \
 			continue; \
-		elif [ "$$test_target" = "tests/test-tokenizer-1" ]; then \
+		elif [ "$$test_target" = "tests/test-tokenizer-1-llama" ]; then \
 			continue; \
 		else \
 			echo "Running test $$test_target..."; \
@@ -87,73 +101,65 @@ CC	:= riscv64-unknown-linux-gnu-gcc
 CXX	:= riscv64-unknown-linux-gnu-g++
 endif
 
-CCV := $(shell $(CC) --version | head -n 1)
-CXXV := $(shell $(CXX) --version | head -n 1)
-
 #
 # Compile flags
 #
 
 # keep standard at C11 and C++11
+MK_CPPFLAGS = -I. -Icommon
+MK_CFLAGS   = -std=c11   -fPIC
+MK_CXXFLAGS = -std=c++11 -fPIC
+
 # -Ofast tends to produce faster code, but may not be available for some compilers.
 ifdef LLAMA_FAST
-OPT = -Ofast
+MK_CFLAGS        += -Ofast
+MK_HOST_CXXFLAGS += -Ofast
+MK_CUDA_CXXFLAGS += -O3
 else
-OPT = -O3
+MK_CFLAGS        += -O3
+MK_CXXFLAGS      += -O3
 endif
-MK_CPPFLAGS = -I. -Icommon
-MK_CFLAGS   = $(OPT) -std=c11   -fPIC
-MK_CXXFLAGS = $(OPT) -std=c++11 -fPIC
-MK_LDFLAGS  =
 
 # clock_gettime came in POSIX.1b (1993)
 # CLOCK_MONOTONIC came in POSIX.1-2001 / SUSv3 as optional
 # posix_memalign came in POSIX.1-2001 / SUSv3
 # M_PI is an XSI extension since POSIX.1-2001 / SUSv3, came in XPG1 (1985)
-MK_CFLAGS   += -D_XOPEN_SOURCE=600
-MK_CXXFLAGS += -D_XOPEN_SOURCE=600
+MK_CPPFLAGS += -D_XOPEN_SOURCE=600
 
 # Somehow in OpenBSD whenever POSIX conformance is specified
 # some string functions rely on locale_t availability,
 # which was introduced in POSIX.1-2008, forcing us to go higher
 ifeq ($(UNAME_S),OpenBSD)
-	MK_CFLAGS   += -U_XOPEN_SOURCE -D_XOPEN_SOURCE=700
-	MK_CXXFLAGS += -U_XOPEN_SOURCE -D_XOPEN_SOURCE=700
+	MK_CPPFLAGS += -U_XOPEN_SOURCE -D_XOPEN_SOURCE=700
 endif
 
 # Data types, macros and functions related to controlling CPU affinity and
 # some memory allocation are available on Linux through GNU extensions in libc
 ifeq ($(UNAME_S),Linux)
-	MK_CFLAGS   += -D_GNU_SOURCE
-	MK_CXXFLAGS += -D_GNU_SOURCE
+	MK_CPPFLAGS += -D_GNU_SOURCE
 endif
 
 # RLIMIT_MEMLOCK came in BSD, is not specified in POSIX.1,
 # and on macOS its availability depends on enabling Darwin extensions
 # similarly on DragonFly, enabling BSD extensions is necessary
 ifeq ($(UNAME_S),Darwin)
-	MK_CFLAGS   += -D_DARWIN_C_SOURCE
-	MK_CXXFLAGS += -D_DARWIN_C_SOURCE
+	MK_CPPFLAGS += -D_DARWIN_C_SOURCE
 endif
 ifeq ($(UNAME_S),DragonFly)
-	MK_CFLAGS   += -D__BSD_VISIBLE
-	MK_CXXFLAGS += -D__BSD_VISIBLE
+	MK_CPPFLAGS += -D__BSD_VISIBLE
 endif
 
 # alloca is a non-standard interface that is not visible on BSDs when
 # POSIX conformance is specified, but not all of them provide a clean way
 # to enable it in such cases
 ifeq ($(UNAME_S),FreeBSD)
-	MK_CFLAGS   += -D__BSD_VISIBLE
-	MK_CXXFLAGS += -D__BSD_VISIBLE
+	MK_CPPFLAGS += -D__BSD_VISIBLE
 endif
 ifeq ($(UNAME_S),NetBSD)
-	MK_CFLAGS   += -D_NETBSD_SOURCE
-	MK_CXXFLAGS += -D_NETBSD_SOURCE
+	MK_CPPFLAGS += -D_NETBSD_SOURCE
 endif
 ifeq ($(UNAME_S),OpenBSD)
-	MK_CFLAGS   += -D_BSD_SOURCE
-	MK_CXXFLAGS += -D_BSD_SOURCE
+	MK_CPPFLAGS += -D_BSD_SOURCE
 endif
 
 ifdef LLAMA_DEBUG
@@ -178,13 +184,33 @@ ifdef LLAMA_DISABLE_LOGS
 endif # LLAMA_DISABLE_LOGS
 
 # warnings
-MK_CFLAGS    += -Wall -Wextra -Wpedantic -Wcast-qual -Wdouble-promotion -Wshadow -Wstrict-prototypes -Wpointer-arith \
-				-Wmissing-prototypes -Werror=implicit-int -Wno-unused-function
-MK_CXXFLAGS  += -Wall -Wextra -Wpedantic -Wcast-qual -Wno-unused-function -Wno-multichar
+WARN_FLAGS    = -Wall -Wextra -Wpedantic -Wcast-qual -Wno-unused-function
+MK_CFLAGS    += $(WARN_FLAGS) -Wshadow -Wstrict-prototypes -Wpointer-arith -Wmissing-prototypes -Werror=implicit-int \
+				-Werror=implicit-function-declaration
+MK_CXXFLAGS  += $(WARN_FLAGS) -Wmissing-declarations -Wmissing-noreturn
 
-ifeq '' '$(findstring clang++,$(CXX))'
-	# g++ only
-	MK_CXXFLAGS += -Wno-format-truncation -Wno-array-bounds
+ifeq ($(CC_IS_CLANG), 1)
+	# clang options
+	MK_CFLAGS        += -Wunreachable-code-break -Wunreachable-code-return
+	MK_HOST_CXXFLAGS += -Wunreachable-code-break -Wunreachable-code-return -Wmissing-prototypes -Wextra-semi
+
+	ifneq '' '$(and $(CC_IS_LLVM_CLANG),$(filter 1,$(shell expr $(CC_VER) \>= 030800)))'
+		MK_CFLAGS += -Wdouble-promotion
+	endif
+	ifneq '' '$(and $(CC_IS_APPLE_CLANG),$(filter 1,$(shell expr $(CC_VER) \>= 070300)))'
+		MK_CFLAGS += -Wdouble-promotion
+	endif
+else
+	# gcc options
+	MK_CFLAGS        += -Wdouble-promotion
+	MK_HOST_CXXFLAGS += -Wno-array-bounds
+
+	ifeq ($(shell expr $(CC_VER) \>= 070100), 1)
+		MK_HOST_CXXFLAGS += -Wno-format-truncation
+	endif
+	ifeq ($(shell expr $(CC_VER) \>= 080100), 1)
+		MK_HOST_CXXFLAGS += -Wextra-semi
+	endif
 endif
 
 # OS specific
@@ -233,7 +259,7 @@ ifndef RISCV
 ifeq ($(UNAME_M),$(filter $(UNAME_M),x86_64 i686 amd64))
 	# Use all CPU extensions that are available:
 	MK_CFLAGS   += -march=native -mtune=native
-	MK_CXXFLAGS += -march=native -mtune=native
+	MK_HOST_CXXFLAGS += -march=native -mtune=native
 
 	# Usage AVX-only
 	#MK_CFLAGS   += -mfma -mf16c -mavx
@@ -303,6 +329,8 @@ ifndef LLAMA_NO_ACCELERATE
 	# `-framework Accelerate` works both with Apple Silicon and Mac Intel
 	ifeq ($(UNAME_S),Darwin)
 		MK_CPPFLAGS += -DGGML_USE_ACCELERATE
+		MK_CPPFLAGS += -DACCELERATE_NEW_LAPACK
+		MK_CPPFLAGS += -DACCELERATE_LAPACK_ILP64
 		MK_LDFLAGS  += -framework Accelerate
 	endif
 endif # LLAMA_NO_ACCELERATE
@@ -366,6 +394,11 @@ ifdef LLAMA_CUDA_KQUANTS_ITER
 else
 	NVCCFLAGS += -DK_QUANTS_PER_ITERATION=2
 endif
+ifdef LLAMA_CUDA_PEER_MAX_BATCH_SIZE
+	NVCCFLAGS += -DGGML_CUDA_PEER_MAX_BATCH_SIZE=$(LLAMA_CUDA_PEER_MAX_BATCH_SIZE)
+else
+	NVCCFLAGS += -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128
+endif # LLAMA_CUDA_PEER_MAX_BATCH_SIZE
 #ifdef LLAMA_CUDA_CUBLAS
 #	NVCCFLAGS += -DGGML_CUDA_CUBLAS
 #endif # LLAMA_CUDA_CUBLAS
@@ -373,7 +406,7 @@ ifdef LLAMA_CUDA_CCBIN
 	NVCCFLAGS += -ccbin $(LLAMA_CUDA_CCBIN)
 endif
 ggml-cuda.o: ggml-cuda.cu ggml-cuda.h
-	$(NVCC) $(NVCCFLAGS) $(subst -Ofast,-O3,$(CXXFLAGS)) -Wno-pedantic -c $< -o $@
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 endif # LLAMA_CUBLAS
 
 ifdef LLAMA_CLBLAST
@@ -408,7 +441,6 @@ ifdef LLAMA_HIPBLAS
 	HIPFLAGS    += -DGGML_CUDA_DMMV_X=$(LLAMA_CUDA_DMMV_X)
 	HIPFLAGS    += -DGGML_CUDA_MMV_Y=$(LLAMA_CUDA_MMV_Y)
 	HIPFLAGS    += -DK_QUANTS_PER_ITERATION=$(LLAMA_CUDA_KQUANTS_ITER)
-	HIPFLAGS    += -DCC_TURING=1000000000
 ifdef LLAMA_CUDA_FORCE_DMMV
 	HIPFLAGS 	+= -DGGML_CUDA_FORCE_DMMV
 endif # LLAMA_CUDA_FORCE_DMMV
@@ -442,23 +474,30 @@ k_quants.o: k_quants.c k_quants.h
 endif # LLAMA_NO_K_QUANTS
 
 # combine build flags with cmdline overrides
-override CFLAGS   := $(MK_CPPFLAGS) $(CPPFLAGS) $(MK_CFLAGS) $(CFLAGS)
-override CXXFLAGS := $(MK_CPPFLAGS) $(CPPFLAGS) $(MK_CXXFLAGS) $(CXXFLAGS)
-override LDFLAGS  := $(MK_LDFLAGS) $(LDFLAGS)
+override CFLAGS        := $(MK_CPPFLAGS) $(CPPFLAGS) $(MK_CFLAGS) $(CFLAGS)
+override CXXFLAGS      := $(MK_CPPFLAGS) $(CPPFLAGS) $(MK_CXXFLAGS) $(CXXFLAGS)
+override CUDA_CXXFLAGS := $(MK_CUDA_CXXFLAGS) $(CUDA_CXXFLAGS)
+override HOST_CXXFLAGS := $(MK_HOST_CXXFLAGS) $(HOST_CXXFLAGS)
+override LDFLAGS       := $(MK_LDFLAGS) $(LDFLAGS)
+
+# save CXXFLAGS before we add host-only options
+NVCCFLAGS := $(NVCCFLAGS) $(CXXFLAGS) $(CUDA_CXXFLAGS) -Wno-pedantic -Xcompiler "$(HOST_CXXFLAGS)"
+override CXXFLAGS += $(HOST_CXXFLAGS)
 
 #
 # Print build information
 #
 
 $(info I llama.cpp build info: )
-$(info I UNAME_S:  $(UNAME_S))
-$(info I UNAME_P:  $(UNAME_P))
-$(info I UNAME_M:  $(UNAME_M))
-$(info I CFLAGS:   $(CFLAGS))
-$(info I CXXFLAGS: $(CXXFLAGS))
-$(info I LDFLAGS:  $(LDFLAGS))
-$(info I CC:       $(CCV))
-$(info I CXX:      $(CXXV))
+$(info I UNAME_S:   $(UNAME_S))
+$(info I UNAME_P:   $(UNAME_P))
+$(info I UNAME_M:   $(UNAME_M))
+$(info I CFLAGS:    $(CFLAGS))
+$(info I CXXFLAGS:  $(CXXFLAGS))
+$(info I NVCCFLAGS: $(NVCCFLAGS))
+$(info I LDFLAGS:   $(LDFLAGS))
+$(info I CC:        $(shell $(CC) --version | head -n 1))
+$(info I CXX:       $(shell $(CXX) --version | head -n 1))
 $(info )
 
 #
@@ -485,6 +524,9 @@ console.o: common/console.cpp common/console.h
 grammar-parser.o: common/grammar-parser.cpp common/grammar-parser.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+train.o: common/train.cpp common/train.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 libllama.so: llama.o ggml.o $(OBJS)
 	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $^ $(LDFLAGS)
 
@@ -502,6 +544,9 @@ main: examples/main/main.cpp                                  build-info.h ggml.
 	@echo
 
 simple: examples/simple/simple.cpp                            build-info.h ggml.o llama.o common.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
+
+batched: examples/batched/batched.cpp                         build-info.h ggml.o llama.o common.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
 quantize: examples/quantize/quantize.cpp                      build-info.h ggml.o llama.o $(OBJS)
@@ -532,7 +577,7 @@ embd-input-test: $(LIB_PRE)embdinput$(DSO_EXT) examples/embd-input/embd-input-te
 gguf: examples/gguf/gguf.cpp ggml.o llama.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
-train-text-from-scratch: examples/train-text-from-scratch/train-text-from-scratch.cpp ggml.o llama.o common.o $(OBJS)
+train-text-from-scratch: examples/train-text-from-scratch/train-text-from-scratch.cpp ggml.o llama.o common.o train.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
 convert-llama2c-to-ggml: examples/convert-llama2c-to-ggml/convert-llama2c-to-ggml.cpp ggml.o llama.o $(OBJS)
@@ -541,13 +586,22 @@ convert-llama2c-to-ggml: examples/convert-llama2c-to-ggml/convert-llama2c-to-ggm
 llama-bench: examples/llama-bench/llama-bench.cpp build-info.h ggml.o llama.o common.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
-baby-llama: examples/baby-llama/baby-llama.cpp ggml.o llama.o common.o $(OBJS)
+baby-llama: examples/baby-llama/baby-llama.cpp ggml.o llama.o common.o train.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
 beam-search: examples/beam-search/beam-search.cpp build-info.h ggml.o llama.o common.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
+finetune: examples/finetune/finetune.cpp build-info.h ggml.o llama.o common.o train.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
+
+export-lora: examples/export-lora/export-lora.cpp build-info.h ggml.o llama.o common.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
+
 speculative: examples/speculative/speculative.cpp build-info.h ggml.o llama.o common.o grammar-parser.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
+
+parallel: examples/parallel/parallel.cpp build-info.h ggml.o llama.o common.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
 ifdef LLAMA_METAL
@@ -556,7 +610,7 @@ metal: examples/metal/metal.cpp ggml.o $(OBJS)
 endif
 
 build-info.h: $(wildcard .git/index) scripts/build-info.sh
-	@sh scripts/build-info.sh > $@.tmp
+	@sh scripts/build-info.sh $(CC) > $@.tmp
 	@if ! cmp -s $@.tmp $@; then \
 		mv $@.tmp $@; \
 	else \
@@ -571,9 +625,16 @@ tests: $(TEST_TARGETS)
 
 benchmark-matmult: examples/benchmark/benchmark-matmult.cpp build-info.h ggml.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
+
+run-benchmark-matmult: benchmark-matmult
 	./$@
 
+.PHONY: run-benchmark-matmult
+
 vdot: pocs/vdot/vdot.cpp ggml.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+q8dot: pocs/vdot/q8dot.cpp ggml.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 tests/test-llama-grammar: tests/test-llama-grammar.cpp build-info.h ggml.o common.o grammar-parser.o $(OBJS)
@@ -606,7 +667,7 @@ tests/test-tokenizer-0-falcon: tests/test-tokenizer-0-falcon.cpp build-info.h gg
 tests/test-tokenizer-0-llama: tests/test-tokenizer-0-llama.cpp build-info.h ggml.o llama.o common.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
-tests/test-tokenizer-1: tests/test-tokenizer-1.cpp build-info.h ggml.o llama.o common.o $(OBJS)
+tests/test-tokenizer-1-llama: tests/test-tokenizer-1-llama.cpp build-info.h ggml.o llama.o common.o $(OBJS)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h,$^) -o $@ $(LDFLAGS)
 
 tests/test-c.o: tests/test-c.c llama.h
