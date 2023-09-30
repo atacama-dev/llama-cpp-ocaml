@@ -723,8 +723,9 @@ let token_nl = Stubs.token_nl
 let tokenize model ~text tokens ~n_max_tokens ~add_bos =
   if n_max_tokens <= 0 then
     invalid_arg "tokenize (n_max_tokens <= 0)" ;
-  let text = CArray.of_string text |> CArray.start in
-  let text_len = Array1.dim tokens in
+  let text_len = String.length text in
+  let text = Array1.init Char c_layout text_len (fun i -> text.[i]) in
+  let text = Ctypes.bigarray_start Ctypes.array1 text in
   let tokens = Ctypes.bigarray_start Ctypes.array1 tokens in
   let written = Stubs.tokenize model text text_len tokens n_max_tokens add_bos in
   if written < 0 then
