@@ -65,7 +65,8 @@ exception Term of int
 let sampling_budget = 256
 
 (* TODO: allow to specify more parameters for llama on the command line? *)
-let llama_parameters = Llama_cpp.Context_params.default ()
+let model_parameters = Llama_cpp.Model_params.default ()
+let ctx_parameters = Llama_cpp.Context_params.default ()
 
 let model_file = ref None
 
@@ -81,14 +82,14 @@ let make_llama_state () =
     exit 1
   | Some m ->
     let m =
-      match Llama_cpp.load_model_from_file m llama_parameters with
+      match Llama_cpp.load_model_from_file m model_parameters with
       | None ->
         Printf.eprintf "%s: error: unable to load model\n" __FUNCTION__ ;
         exit 1
       | Some model -> model
     in
     model := (Some m) ;
-    let ctx = Llama_cpp.new_context_with_model m llama_parameters in
+    let ctx = Llama_cpp.new_context_with_model m ctx_parameters in
     Llm.make_state ctx
 
 let get_llama_state () =
@@ -323,7 +324,7 @@ class read_phrase ~term =
         (* Checkpoint state: the modifications to the state performed during
            sampling should not be saved. We want the invariant that the state results
            from inference on valid phrases only (see [Llm.perform_inference_on_history]). *)
-        let state = Llm.clone state (Option.get !model) llama_parameters in
+        let state = Llm.clone state ctx_parameters in
         let samples = Llm.samples ~add_bos state prefix in
         let print msg =
           self#send_action
@@ -715,7 +716,7 @@ let rule_path rule =
                 ; Types.type_private  = Asttypes.Public
                 ; Types.type_manifest = Some ty
                 } -> begin
-            match get_desc (Ctype.expand_head env ty) with
+            match Types.get_desc (Ctype.expand_head env ty) with
             | Types.Tconstr (path, _, _) -> path
             | _ -> path
           end

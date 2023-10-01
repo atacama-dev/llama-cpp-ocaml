@@ -1,6 +1,6 @@
 (executables
  (names utopilot)
- (libraries compiler-libs.toplevel findlib.top unix lwt lwt.unix logs.lwt react threads zed lambda-term lwt_react utop iter llama_cpp)
+ (libraries compiler-libs.toplevel findlib.top unix lwt lwt.unix logs.lwt react threads.posix zed lambda-term lwt_react utop iter llama_cpp)
  (modes byte)
  (link_flags -linkall)
  (preprocess
