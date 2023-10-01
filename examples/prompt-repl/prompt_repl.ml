@@ -17,6 +17,14 @@ open Bigarray
 
 module Token_buffer = Llama_cpp.Token_buffer
 
+module Int32_infix =
+struct
+  let (+) = Int32.add
+  let (-) = Int32.sub
+  let ( * ) = Int32.mul
+  let (/) = Int32.div
+end
+
 (* +-----------------------------------------------------------------+
    | Interpreter                                                     |
    +-----------------------------------------------------------------+ *)
@@ -32,9 +40,9 @@ module Interpreter = struct
       n_batch : int ; (* Max size of a batch *)
       n_threads : int ; (* Number of parallel threads to use to perform inference. *)
       n_max_samples : int ; (* Maximum sampling budget per user input *)
-      n_past : int ;
-      embd : token list;
-      last_tokens : token list ;
+      n_past : int ; (* Number of tokens in the context *)
+      (* embd : Token_buffer.t; *)
+      last_tokens : Llama_cpp.token list ;
       last_logits : Llama_cpp.logits option ;
       grammar : Llama_cpp.grammar option
     }
@@ -48,7 +56,6 @@ module Interpreter = struct
       n_threads ;
       n_max_samples ;
       n_past = 0 ;
-      embd = [] ;
       last_tokens = [];
       last_logits = None ;
       grammar
@@ -78,7 +85,6 @@ module Interpreter = struct
         ]
       ]
 
-
   (*
      Context swapping is used when the context is too small to fit the next sequence of tokens.
      Invariant: [embd < n_ctx] where [n_ctx] is the total size of the context
@@ -98,8 +104,8 @@ module Interpreter = struct
      last_tokens: ---------------kkkkkkkkdddddddmmmmmmmmm|
 
      where
-     - k = kept tokens (won't need to be re-sampled)
-     - m = moved tokens (will need to be re-sampled)
+     - k = kept tokens (won't need to be re-weighted)
+     - m = moved tokens (will need to be re-weighted)
      - d = dropped tokens (will disappear from the context)
 
      After context swapping:
@@ -107,78 +113,63 @@ module Interpreter = struct
      context:                                    kkkkkkkk|_______________________________
      embd:                                               |mmmmmmmmmxxxxxxxxxxxxxxxxxxxx
      last_tokens: ---------------kkkkkkkkdddddddmmmmmmmmm|
-
    *)
-  let context_swapping n_keep n_past embd last_tokens =
-    let n_left = n_past - n_keep in
-    assert (n_left >= 0) ;
-    (* always keep the first token in the context, BOS *)
-    let n_past = Int.max 1 n_keep in
-    (* copy [n_left/2] past tokens between [n_past] and start of [embd]
-       at the start of [embd]. *)
-    let embd, _ =
-      Iter.(0 -- (n_left / 2 - 1))
-      |> Iter.fold (fun (embd, last_tokens) _i ->
-          match last_tokens with
-          | [] -> (Llama_cpp.zero_token :: embd, last_tokens)
-          | token :: last_tokens ->
-            (token :: embd, last_tokens)
-        ) (embd, last_tokens)
+  let context_swapping ctx ~n_keep ~n_past =
+    let open Int32_infix in
+    let n_past = Int32.of_int n_past in
+    let n_keep = Int32.of_int n_keep in
+    let n_discard = (n_past - n_keep) / 2l in
+    Llama_cpp.kv_cache_seq_rm ctx 0l
+      ~p0:(n_keep + 1l)
+      ~p1:(n_keep + 1l + n_discard) ;
+    Llama_cpp.kv_cache_seq_shift ctx 0l
+      ~p0:(n_keep + 1l + n_discard)
+      ~p1:n_past
+      ~delta:(Int32.neg n_discard) ;
+    Int32.to_int (n_past - n_discard)
+
+  let sample_batch ctx n_batch n_past tokens batch =
+    let rec loop start_idx remaining n_past =
+      assert (remaining > 0) ;
+      let batch_size = Int.min remaining n_batch in
+      (* Initialize batch *)
+      Llama_cpp.Batch.(
+        set_n_tokens batch batch_size ;
+        let { token; pos; seq_id; logits; _ } = view batch in
+        for i = 0 to batch_size - 1 do
+          token.{i} <- tokens.{start_idx + i} ;
+          pos.{i} <- Int32.of_int (n_past + i) ;
+          seq_id.{i} <- 0l ;
+          logits.{i} <- 0
+        done ;
+        logits.{batch_size - 1} <- 1
+      ) ;
+      let res = Llama_cpp.decode ctx batch in
+      match res with
+      | Error _ ->
+        failwith "sample_batch"
+      | Ok logits ->
+        let start_idx = start_idx + batch_size in
+        let n_past = n_past + batch_size in
+        let remaining = Token_buffer.dim tokens - start_idx in
+        if remaining <= 0 then
+          (logits, n_past)
+        else
+          loop start_idx remaining n_past
     in
-    embd, n_past
+    loop 0 (Token_buffer.dim tokens) n_past
 
-  let rec sample_batch ctx tokens n_batch n_threads n_past i =
-    let len = Token_buffer.dim tokens in
-    assert (len > 0) ;
-    let batch_size = Int.min len n_batch in
-    let res =
-      Llama_cpp.eval
-        ctx
-        tokens
-        ~n_tokens:batch_size
-        ~n_past
-        ~n_threads
-    in
-    match res with
-    | None ->
-      failwith "sample_batch"
-    | Some logits ->
-      let remaining = len - batch_size in
-      let n_past = n_past + batch_size in
-      if remaining <= 0 then
-        (logits, n_past)
-      else
-        let tokens = Token_buffer.sub tokens batch_size remaining in
-        sample_batch ctx tokens n_batch n_threads n_past (i + batch_size)
-
-  let tokens_to_string state tokens =
-    let buff = Buffer.create 1024 in
-    List.iter (fun token ->
-        (match Llama_cpp.token_to_piece state.ctx token with
-         | Ok s -> Buffer.add_string buff s
-         | Error `Invalid_token -> failwith "Invalid token")
-      ) tokens ;
-    Buffer.contents buff
-
-  let perform_inference state =
+  let perform_inference state embd batch =
     let n_ctx = Llama_cpp.n_ctx state.ctx in
-    let embd, embd_len =
-      let embd =
-        List.to_seq state.embd
-        |> Seq.take n_ctx
-        |> List.of_seq
-      in
-      (embd, List.length embd)
-    in
-    let embd, n_past =
+    let embd_len = Token_buffer.dim embd in
+    let n_past =
       if state.n_past + embd_len > n_ctx then
-        context_swapping state.n_keep state.n_past embd state.last_tokens
-      else embd, state.n_past
+        context_swapping state.ctx ~n_keep:state.n_keep ~n_past:state.n_past
+      else
+        state.n_past
     in
-    let tokens = Token_buffer.of_list embd in
-    let logits, n_past = sample_batch state.ctx tokens state.n_batch state.n_threads n_past 0 in
+    let logits, n_past = sample_batch state.ctx state.n_batch n_past embd batch in
     { state with
-      embd = [] ;
       n_past ;
       last_logits = Some logits
     }
@@ -186,16 +177,19 @@ module Interpreter = struct
   (* This produces a transient sequence because of the shared [candidate] array *)
   let step ~add_bos state prompt =
     let ctx = state.ctx in
-    let tokens = tokenize ~add_bos ctx prompt |> Token_buffer.to_seq |> List.of_seq in
-    let state = { state with embd = tokens } in
+    let model = Llama_cpp.get_model ctx in
+    let tokens = tokenize ~add_bos model prompt in
+    let batch = Llama_cpp.batch_init ~n_tokens:512 ~embd:0 in
+    (* Llama_cpp.with_batch ~n_tokens:512 ~embd:0 @@ fun batch -> *)
+    (* Perform inference on prompt if non-empty *)
     let state =
-      if tokens = [] then
+      if Token_buffer.dim tokens = 0 then
         state
       else
-        perform_inference state
+        perform_inference state tokens batch
     in
     let logits = Option.get state.last_logits in
-    let logits = Array2.slice_left logits 0 in
+    let logits = Array2.slice_left logits (Array2.dim1 logits - 1) in
     let candidates = Llama_cpp.Token_data_array.create logits in
     let rec loop state () =
       let last_tokens = Token_buffer.of_list (List.rev state.last_tokens) in
@@ -205,17 +199,18 @@ module Interpreter = struct
       Option.iter (fun grammar ->
           Llama_cpp.grammar_accept_token ctx grammar new_token_id
         ) state.grammar ;
-      let embd = new_token_id :: state.embd in
       let last_tokens = new_token_id :: state.last_tokens in
-      let state = { state with last_tokens; embd } in
+      let state = { state with last_tokens } in
       if Int32.equal new_token_id (Llama_cpp.token_eos state.ctx) then
-        let next_element = (new_token_id, state) in
-        Seq.Cons (next_element, Seq.empty)
+        ( Llama_cpp.batch_free batch ;
+          let next_element = (new_token_id, state) in
+          Seq.Cons (next_element, Seq.empty) )
       else
-        let state = perform_inference state in
+        let embd = Token_buffer.of_list [new_token_id] in
+        let state = perform_inference state embd batch in
         let next_element = (new_token_id, state) in
         let logits = Option.get state.last_logits in
-        let logits = Array2.slice_left logits 0 in
+        let logits = Array2.slice_left logits (Llama_cpp.Batch.n_tokens batch - 1) in
         Llama_cpp.Token_data_array.write_logits candidates logits ;
         Seq.Cons (next_element, loop state)
     in
@@ -254,9 +249,17 @@ let (let*) = (>>=)
 let (let+) = (>|=)
 
 let token_to_string (state : Interpreter.state) token =
-  match Llama_cpp.token_to_piece state.ctx token with
+  match Llama_cpp.token_to_piece (Llama_cpp.get_model state.ctx) token with
   | Ok s -> s
   | Error `Invalid_token -> failwith "Invalid token"
+
+let tokens_to_string state tokens =
+  let buff = Buffer.create 1024 in
+  List.iter (fun token ->
+      let s = token_to_string state token in
+      Buffer.add_string buff s
+    ) tokens ;
+  Buffer.contents buff
 
 (* Sample from the LLM until [not continue] or we exhaust the sampling budget.
    We return the final state upon termination. *)
@@ -322,21 +325,26 @@ let print_info term =
   let* () = LTerm.fprint term "Use ctrl-c to interrupt prompt generation. LLM context is kept across interruptions.\n" in
   LTerm.fprint term "Use ctrl-d to quit.\n"
 
-let main model =
+let main model apply_grammar =
   let* () = LTerm_inputrc.load () in
   Lwt.catch (fun () ->
       Llama_cpp.log_set (fun _log_level _msg -> ()) ;
-      let grammar = Llama_cpp.grammar_from_bnf Interpreter.grammar in
+      let grammar =
+        if apply_grammar then
+          Some (Llama_cpp.grammar_from_bnf Interpreter.grammar)
+        else None
+      in
       let ctx_params = Llama_cpp.Context_params.default () in
+      let model_params = Llama_cpp.Model_params.default () in
       let model =
-        match Llama_cpp.load_model_from_file model ctx_params with
+        match Llama_cpp.load_model_from_file model model_params with
         | None ->
           Printf.eprintf "%s: error: unable to load model\n" __FUNCTION__ ;
           exit 1
         | Some model -> model
       in
       let ctx = Llama_cpp.new_context_with_model model ctx_params in
-      let state = Interpreter.make_state ~grammar ctx in
+      let state = Interpreter.make_state ?grammar ctx in
       let* term = Lazy.force LTerm.stdout in
       let* () = print_info term in
       loop ~add_bos:true term (LTerm_history.create []) state)
@@ -351,6 +359,8 @@ let usage () =
 let () =
   match Array.to_list Sys.argv |> List.tl with
   | [model_file]->
-    Lwt_main.run (main model_file)
+    Lwt_main.run (main model_file false)
+  | [model_file; "-apply-grammar"]->
+    Lwt_main.run (main model_file true)
   | _ ->
     usage ()
