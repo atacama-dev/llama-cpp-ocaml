@@ -1,17 +1,17 @@
-From 75785d11eaa929f2196fa9862e244ec4a817fdea Mon Sep 17 00:00:00 2001
+From 76e407faf90641e644479463c7231fba46fcb439 Mon Sep 17 00:00:00 2001
 From: Ilias Garnier <igarnier@protonmail.com>
-Date: Sat, 30 Sep 2023 07:07:55 +0200
-Subject: [PATCH] patching Makefile
+Date: Tue, 3 Oct 2023 20:25:19 +0200
+Subject: [PATCH] Produce static archive
 
 ---
  Makefile | 3 +++
  1 file changed, 3 insertions(+)
 
 diff --git a/Makefile b/Makefile
-index 08b83ca..59b90f1 100644
+index b8b0d4b..71b8e6f 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -530,6 +530,9 @@ train.o: common/train.cpp common/train.h
+@@ -532,6 +532,9 @@ train.o: common/train.cpp common/train.h
  libllama.so: llama.o ggml.o $(OBJS)
  	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $^ $(LDFLAGS)
 
