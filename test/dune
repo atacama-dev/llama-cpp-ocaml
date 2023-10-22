@@ -1,4 +1,5 @@
 (test
    (name llama_test)
    (libraries llama_cpp)
+   (ocamlc_flags -dllib src/dllllama_cpp_stubs.so)
 )

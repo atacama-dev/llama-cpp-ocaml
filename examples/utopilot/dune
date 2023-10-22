@@ -3,6 +3,7 @@
  (libraries compiler-libs.toplevel findlib.top unix lwt lwt.unix logs.lwt react threads.posix zed lambda-term lwt_react utop iter llama_cpp)
  (modes byte)
  (link_flags -linkall)
+ (ocamlc_flags -dllib src/dllllama_cpp_stubs.so)
  (preprocess
    (action
     (run %{bin:cppo} -V OCAML:%{ocaml_version} %{input-file}))))
