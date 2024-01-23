@@ -47,6 +47,9 @@ module Token_buffer : sig
   (** The type of token buffers, represented as arrays of {!int32}. *)
   type t = (token, int32_elt, c_layout) Array1.t
 
+  (** [equal arr1 arr2] tests equality of [arr1] and [arr2]. *)
+  val equal : t -> t -> bool
+
   (** [dim arr] is the length of the token buffer. *)
   val dim : t -> int
 
@@ -541,7 +544,9 @@ val grammar_from_bnf : BNF.t -> grammar
 (** Sets the current rng seed. *)
 val set_rng_seed : context -> int -> unit
 
-(** Repetition penalty described in CTRL academic paper https://arxiv.org/abs/1909.05858, with negative logit fix. *)
+(** Repetition penalty described in CTRL academic paper https://arxiv.org/abs/1909.05858, with negative logit fix.
+    The algorithm has complexity proportional to the length [candidates] multiplied by the length
+    of [last_tokens]. *)
 val sample_repetition_penalty : context -> candidates:Token_data_array.t -> last_tokens:Token_buffer.t -> penalty:float -> unit
 
 (** Frequency and presence penalties described in OpenAI API https://platform.openai.com/docs/api-reference/parameter-details. *)

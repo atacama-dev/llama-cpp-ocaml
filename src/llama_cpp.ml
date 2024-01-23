@@ -55,6 +55,22 @@ let zero_token = 0l
 module Token_buffer = struct
   type t = (int32, int32_elt, c_layout) Array1.t
 
+  let equal (arr1 : t) (arr2 : t) =
+    if not (Array1.dim arr1 = Array1.dim arr2) then
+      false
+    else
+      let exception Break in
+      try
+        for i = 0 to Array1.dim arr1 - 1 do
+          let v1 = arr1.{i} in
+          let v2 = arr2.{i} in
+          if v1 <> v2 then
+            raise Break
+        done ;
+        true
+      with
+      | Break -> false
+        
   let dim (arr : t) = Array1.dim arr
 
   let init f = Array1.init Int32 c_layout f

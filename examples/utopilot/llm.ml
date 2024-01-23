@@ -30,40 +30,42 @@ end =
 
 type token = Llama_cpp.token
 
+type consts = {
+  n_keep : int; (* Number of tokens to keep when resetting context *)
+  n_batch : int; (* Max size of a batch *)
+  n_threads : int; (* Number of parallel threads to use to perform inference. *)
+  n_max_samples : int; (* Maximum sampling budget per user input *)
+}
+
 type state =
-  { n : int ; (* Index of repl interaction *)
+  { 
+    consts : consts;
+    n : int ; (* Index of repl interaction *)
     ctx : Llama_cpp.context;
-    n_keep : int; (* Number of tokens to keep when resetting context *)
-    n_batch : int; (* Max size of a batch *)
-    n_threads : int; (* Number of parallel threads to use to perform inference. *)
-    n_max_samples : int; (* Maximum sampling budget per user input *)
-    n_past : int;
-    last_tokens : token list;
+    n_past : int; (* Number of tokens in context *)
+    last_tokens : token Queue.t; (* Window of tokens on which we check repetition. *)
     last_logits : Llama_cpp.logits option;
     processed_hist : Hash_set.t
   }
 
 let make_state ?(n_keep = 32) ?(n_batch = 32) ?(n_threads = 8) ?(n_max_samples = 512) ctx =
   {
+    consts = {
+      n_keep ;
+      n_batch ;
+      n_threads ;
+      n_max_samples ;
+    } ;
     n = 1 ;
     ctx ;
-    n_keep ;
-    n_batch ;
-    n_threads ;
-    n_max_samples ;
     n_past = 0 ;
-    last_tokens = [] ;
+    last_tokens = Queue.create () ;
     last_logits = None ;
     processed_hist = Hash_set.create 41
   }
 
-let clone state params =
-  { state with
-    ctx = Llama_cpp.clone state.ctx params
-  }
-
 (* Tokenize prompt *)
-let tokenize ~add_bos ctx text =
+let tokenize ~add_bos ctx text : Token_buffer.t =
   let tokens_buff = Token_buffer.init 1024 (Fun.const Llama_cpp.zero_token) in
   match Llama_cpp.tokenize ctx ~text tokens_buff ~n_max_tokens:1024 ~add_bos with
   | Error (`Too_many_tokens count) ->
@@ -91,6 +93,8 @@ let context_swapping ctx ~n_keep ~n_past =
     ~delta:(Int32.neg n_discard) ;
   Int32.to_int (n_past - n_discard)
 
+(* [sample_batch ctx n_batch n_past tokens batch] fills [tokens] with new samples.
+   Samples are taken by batches. *)
 let sample_batch ctx n_batch n_past tokens batch =
   let rec loop start_idx remaining n_past =
     assert (remaining > 0) ;
@@ -140,11 +144,11 @@ let perform_inference state embd batch =
   let embd_len = Token_buffer.dim embd in
   let n_past =
     if state.n_past + embd_len > n_ctx then
-      context_swapping state.ctx ~n_keep:state.n_keep ~n_past:state.n_past
+      context_swapping state.ctx ~n_keep:state.consts.n_keep ~n_past:state.n_past
     else
       state.n_past
   in
-  let logits, n_past = sample_batch state.ctx state.n_batch n_past embd batch in
+  let logits, n_past = sample_batch state.ctx state.consts.n_batch n_past embd batch in
   { state with
     n_past ;
     last_logits = Some logits
@@ -159,7 +163,7 @@ let tokenize_then_inference ~add_bos state batch input =
     perform_inference state tokens batch
 
 let perform_inference_on_history state =
-  let batch = Llama_cpp.batch_init ~n_tokens:state.n_batch ~embd:0 in
+  let batch = Llama_cpp.batch_init ~n_tokens:state.consts.n_batch ~embd:0 in
   let hist = UTop.stashable_session_history in
   let contents = UTop_history.contents hist |> List.rev in
   let state =
@@ -186,7 +190,7 @@ let perform_inference_on_history state =
 let samples ~add_bos state prompt =
   let ctx = state.ctx in
   let tokens = tokenize ~add_bos (Llama_cpp.get_model state.ctx) prompt in
-  let batch = Llama_cpp.batch_init ~n_tokens:state.n_batch ~embd:0 in
+  let batch = Llama_cpp.batch_init ~n_tokens:state.consts.n_batch ~embd:0 in
   let state =
     if Token_buffer.dim tokens = 0 then
       state
@@ -197,11 +201,10 @@ let samples ~add_bos state prompt =
   let logits = Array2.slice_left logits (Array2.dim1 logits - 1) in
   let candidates = Llama_cpp.Token_data_array.create logits in
   let rec loop state () =
-    let last_tokens = Token_buffer.of_list (List.rev state.last_tokens) in
+    let last_tokens = Token_buffer.of_seq (Queue.to_seq state.last_tokens) in
     Llama_cpp.sample_repetition_penalty ctx ~candidates ~last_tokens ~penalty:1.1 ;
     let new_token_id = Llama_cpp.sample_token_greedy ctx ~candidates in
-    let last_tokens = new_token_id :: state.last_tokens in
-    let state = { state with last_tokens } in
+    Queue.add new_token_id state.last_tokens ;
     if Int32.equal new_token_id (Llama_cpp.token_eos state.ctx) then
       ( Llama_cpp.batch_free batch ;
         let next_element = (new_token_id, state) in
